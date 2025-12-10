@@ -76,14 +76,12 @@ bool send_command(command_t *cmd)
     return true;
 }
 
-bool receive_command(command_t *cmd)
+bool receive_command(command_t *cmd, uint32_t timeout_ms)
 {
     if (cmd == NULL || comm_to_control_queue == NULL) {
         return false;
     }
-    if (cmd == NULL) {
-        return false;
-    }
 
-    return xQueueReceive(comm_to_control_queue, cmd, 0) == pdTRUE;
+    TickType_t ticks = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
+    return xQueueReceive(comm_to_control_queue, cmd, ticks) == pdTRUE;
 }

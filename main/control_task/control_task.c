@@ -69,7 +69,7 @@ void control_task(void *pvParameters)
     while (1) {
         // Check for incoming commands (non-blocking)
         command_t cmd;
-        if (receive_command(&cmd)) {
+        if (receive_command(&cmd, 0)) {
             handle_incoming_command(&cmd);
         }
 
