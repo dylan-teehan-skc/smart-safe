@@ -9,7 +9,10 @@ void app_main(void)
     printf("Smart Safe starting...\n");
 
     // Create control task (high priority) - handles sensors, keypad, LEDs
-    xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL);
+    if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) == pdFAIL) {
+        printf("Error: Failed to create control_task!\n");
+        return;
+    }
 
     // Create comm task (lower priority) - handles WiFi, MQTT
     xTaskCreate(comm_task, "comm_task", 4096, NULL, 3, NULL);
