@@ -73,11 +73,12 @@ void control_task(void *pvParameters)
             handle_incoming_command(&cmd);
         }
 
-        // TODO: Poll keypad
-        // TODO: Check vibration sensor
+        // TODO: Keypad - use GPIO interrupt on column pins, ISR gives semaphore
+        // TODO: Vibration sensor - use GPIO interrupt, ISR gives semaphore
         // TODO: Update LEDs based on state
-        // TODO: Handle auto-lock timeout
+        // TODO: Handle auto-lock timeout using FreeRTOS software timer
 
+        // Block until interrupt semaphore or command received
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
