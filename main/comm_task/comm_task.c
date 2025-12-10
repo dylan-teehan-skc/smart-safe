@@ -10,11 +10,12 @@ static const char *TAG = "COMM";
 
 // JSON buffer for telemetry
 #define JSON_BUFFER_SIZE 256
-static char json_buffer[JSON_BUFFER_SIZE];
+
 
 // Publish telemetry (placeholder - will add MQTT later)
 static void publish_telemetry(event_t *event)
 {
+    char json_buffer[JSON_BUFFER_SIZE];
     int len = event_to_json(event, json_buffer, JSON_BUFFER_SIZE);
     if (len > 0) {
         ESP_LOGI(TAG, "Telemetry: %s", json_buffer);
