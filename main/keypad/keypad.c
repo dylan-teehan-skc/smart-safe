@@ -2,22 +2,24 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "esp_log.h"
+#include "rom/ets_sys.h"
 
 static const char *TAG = "KEYPAD";
 
 // GPIO pin definitions for 4x4 keypad
 // Rows: Outputs (driven low one at a time)
-#define ROW1_PIN GPIO_NUM_13
-#define ROW2_PIN GPIO_NUM_12
-#define ROW3_PIN GPIO_NUM_14
-#define ROW4_PIN GPIO_NUM_27
+#define ROW1_PIN GPIO_NUM_25
+#define ROW2_PIN GPIO_NUM_26
+#define ROW3_PIN GPIO_NUM_27
+#define ROW4_PIN GPIO_NUM_9
 
 // Columns: Inputs (with pull-ups)
-#define COL1_PIN GPIO_NUM_26
-#define COL2_PIN GPIO_NUM_25
-#define COL3_PIN GPIO_NUM_33
-#define COL4_PIN GPIO_NUM_32
+#define COL1_PIN GPIO_NUM_10
+#define COL2_PIN GPIO_NUM_13
+#define COL3_PIN GPIO_NUM_5
+#define COL4_PIN GPIO_NUM_2
 
 // Array of row and column pins for easy iteration
 static const gpio_num_t row_pins[4] = {ROW1_PIN, ROW2_PIN, ROW3_PIN, ROW4_PIN};
@@ -31,54 +33,43 @@ static const char key_map[4][4] = {
     {'*', '0', '#', 'D'}
 };
 
-// Debouncing state
-static char last_key = '\0';
-static uint8_t debounce_count = 0;
-#define DEBOUNCE_THRESHOLD 2  // Key must be stable for 2 consecutive reads
+// Queue to send key events from ISR to task context
+static QueueHandle_t keypad_queue = NULL;
+#define KEYPAD_QUEUE_SIZE 10
 
-void keypad_init(void)
+// Debounce timer for ISR
+static volatile TickType_t last_interrupt_time = 0;
+#define DEBOUNCE_DELAY_MS 50
+
+// ISR handler - called when any column pin goes LOW
+static void IRAM_ATTR keypad_isr_handler(void *arg)
 {
-    ESP_LOGI(TAG, "Initializing 4x4 keypad matrix");
+    TickType_t current_time = xTaskGetTickCountFromISR();
     
-    // Configure row pins as outputs (initially high)
-    gpio_config_t row_conf = {
-        .pin_bit_mask = ((1ULL << ROW1_PIN) | (1ULL << ROW2_PIN) | 
-                         (1ULL << ROW3_PIN) | (1ULL << ROW4_PIN)),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&row_conf);
-    
-    // Set all rows high initially
-    for (int i = 0; i < 4; i++) {
-        gpio_set_level(row_pins[i], 1);
+    // Simple debounce: ignore interrupts within DEBOUNCE_DELAY_MS
+    if ((current_time - last_interrupt_time) < (DEBOUNCE_DELAY_MS / portTICK_PERIOD_MS)) {
+        return;
     }
+    last_interrupt_time = current_time;
     
-    // Configure column pins as inputs with pull-ups
-    gpio_config_t col_conf = {
-        .pin_bit_mask = ((1ULL << COL1_PIN) | (1ULL << COL2_PIN) | 
-                         (1ULL << COL3_PIN) | (1ULL << COL4_PIN)),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&col_conf);
+    // Set flag to trigger scan in task context
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    uint8_t dummy = 1;
+    xQueueSendFromISR(keypad_queue, &dummy, &xHigherPriorityTaskWoken);
     
-    ESP_LOGI(TAG, "Keypad initialized successfully");
-    ESP_LOGI(TAG, "Row pins: %d, %d, %d, %d", ROW1_PIN, ROW2_PIN, ROW3_PIN, ROW4_PIN);
-    ESP_LOGI(TAG, "Col pins: %d, %d, %d, %d", COL1_PIN, COL2_PIN, COL3_PIN, COL4_PIN);
+    if (xHigherPriorityTaskWoken) {
+        portYIELD_FROM_ISR();
+    }
 }
 
-char keypad_get_key(void)
+// Scan the matrix to find which key is pressed
+static char keypad_scan(void)
 {
     char detected_key = '\0';
     
     // Scan each row
     for (int row = 0; row < 4; row++) {
-        // Set all rows high first
+        // Set all rows high
         for (int i = 0; i < 4; i++) {
             gpio_set_level(row_pins[i], 1);
         }
@@ -86,14 +77,12 @@ char keypad_get_key(void)
         // Drive current row low
         gpio_set_level(row_pins[row], 0);
         
-        // Delay to let the signal stabilize
-        vTaskDelay(1 / portTICK_PERIOD_MS);
+        // Short delay for signal stabilization
+        ets_delay_us(100);  // 100 microseconds
         
+        // Read all columns
         for (int col = 0; col < 4; col++) {
-            int level = gpio_get_level(col_pins[col]);
-            
-            // If col is low, key at this row/col is pressed
-            if (level == 0) {
+            if (gpio_get_level(col_pins[col]) == 0) {
                 detected_key = key_map[row][col];
                 break;
             }
@@ -104,47 +93,134 @@ char keypad_get_key(void)
         }
     }
     
-    // Set all rows high after scanning
+    // Return all rows to LOW for interrupt detection
     for (int i = 0; i < 4; i++) {
-        gpio_set_level(row_pins[i], 1);
+        gpio_set_level(row_pins[i], 0);
     }
     
-    // Debouncing logic
-    if (detected_key == last_key) {
-        debounce_count++;
-        if (debounce_count >= DEBOUNCE_THRESHOLD) {
-            debounce_count = DEBOUNCE_THRESHOLD; 
-            return detected_key;
+    return detected_key;
+}
+
+void keypad_init(void)
+{
+    ESP_LOGI(TAG, "Initializing 4x4 keypad with interrupts");
+    
+    // Create queue for key events
+    keypad_queue = xQueueCreate(KEYPAD_QUEUE_SIZE, sizeof(uint8_t));
+    if (keypad_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create keypad queue");
+        return;
+    }
+    
+    // Configure row pins as outputs (initially LOW to enable interrupt detection)
+    gpio_config_t row_conf = {
+        .pin_bit_mask = ((1ULL << ROW1_PIN) | (1ULL << ROW2_PIN) | 
+                         (1ULL << ROW3_PIN) | (1ULL << ROW4_PIN)),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&row_conf);
+    
+    // Set all rows LOW initially (key press will pull column LOW)
+    for (int i = 0; i < 4; i++) {
+        gpio_set_level(row_pins[i], 0);
+    }
+    
+    // Configure column pins as inputs with pull-ups and FALLING edge interrupts
+    gpio_config_t col_conf = {
+        .pin_bit_mask = ((1ULL << COL1_PIN) | (1ULL << COL2_PIN) | 
+                         (1ULL << COL3_PIN) | (1ULL << COL4_PIN)),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE,  // Trigger on falling edge (key press)
+    };
+    gpio_config(&col_conf);
+    
+    // Install GPIO ISR service
+    gpio_install_isr_service(0);
+    
+    // Add ISR handlers for each column pin
+    for (int i = 0; i < 4; i++) {
+        gpio_isr_handler_add(col_pins[i], keypad_isr_handler, (void*)(col_pins[i]));
+    }
+    
+    ESP_LOGI(TAG, "Keypad initialized with interrupts");
+    ESP_LOGI(TAG, "Row pins: %d, %d, %d, %d", ROW1_PIN, ROW2_PIN, ROW3_PIN, ROW4_PIN);
+    ESP_LOGI(TAG, "Col pins: %d, %d, %d, %d", COL1_PIN, COL2_PIN, COL3_PIN, COL4_PIN);
+}
+
+char keypad_get_key(void)
+{
+    uint8_t dummy;
+    
+    // Check for interrupt signal (non-blocking)
+    if (xQueueReceive(keypad_queue, &dummy, 0) == pdTRUE) {
+        // Interrupt occurred, scan matrix
+        char key = keypad_scan();
+        
+        // Additional debounce: wait a bit and scan again
+        vTaskDelay(20 / portTICK_PERIOD_MS);
+        char key2 = keypad_scan();
+        
+        if (key == key2 && key != '\0') {
+            return key;
         }
-    } else {
-        // Key changed, reset debounce counter
-        last_key = detected_key;
-        debounce_count = 0;
     }
     
-    // Key not stable yet
     return '\0';
+}
+
+char keypad_wait_for_key(uint32_t timeout_ms)
+{
+    uint8_t dummy;
+    TickType_t timeout_ticks = (timeout_ms == 0) ? portMAX_DELAY : (timeout_ms / portTICK_PERIOD_MS);
+    
+    // Wait for interrupt signal (blocking)
+    if (xQueueReceive(keypad_queue, &dummy, timeout_ticks) == pdTRUE) {
+        char key = keypad_scan();
+        
+        // Additional debounce
+        vTaskDelay(20 / portTICK_PERIOD_MS);
+        char key2 = keypad_scan();
+        
+        if (key == key2 && key != '\0') {
+            return key;
+        }
+    }
+    
+    return '\0';  // Timeout or no valid key
 }
 
 void keypad_demo(void)
 {
-    ESP_LOGI(TAG, "Starting keypad demo...");
-    ESP_LOGI(TAG, "Press keys on the keypad. Press and hold to test debouncing.");
-    
-    char last_printed_key = '\0';
+    ESP_LOGI(TAG, "Starting interrupt-based keypad demo...");
+    ESP_LOGI(TAG, "Press keys on the keypad. CPU sleeps between presses.");
     
     while (1) {
-        char key = keypad_get_key();
+        // Blocking wait - CPU can sleep until key press
+        char key = keypad_wait_for_key(0);  // 0 = wait forever
         
-        if (key != '\0' && key != last_printed_key) {
+        if (key != '\0') {
             ESP_LOGI(TAG, "Key pressed: '%c'", key);
-            last_printed_key = key;
-        } else if (key == '\0' && last_printed_key != '\0') {
-            ESP_LOGI(TAG, "Key released");
-            last_printed_key = '\0';
+            
+            // Wait for key release (all columns HIGH)
+            while (1) {
+                bool all_released = true;
+                for (int i = 0; i < 4; i++) {
+                    if (gpio_get_level(col_pins[i]) == 0) {
+                        all_released = false;
+                        break;
+                    }
+                }
+                if (all_released) {
+                    ESP_LOGI(TAG, "Key released");
+                    break;
+                }
+                vTaskDelay(10 / portTICK_PERIOD_MS);
+            }
         }
-        
-        // Poll every 50ms (adjust as needed)
-        vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 }

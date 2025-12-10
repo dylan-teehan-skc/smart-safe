@@ -4,22 +4,34 @@
 #include <stdint.h>
 
 /**
- * @brief Initialize the 4x4 keypad matrix
+ * @brief Initialize the 4x4 keypad matrix with interrupt support
  * 
  * Configures GPIO pins for rows (outputs) and columns (inputs with pull-ups).
- * Must be called before using keypad_get_key().
+ * Enables falling edge interrupts on column pins for key press detection.
+ * Must be called before using keypad_get_key() or keypad_wait_for_key().
  */
 void keypad_init(void);
 
 /**
- * @brief Scan the keypad and return the pressed key
+ * @brief Non-blocking check for keypad press
  * 
- * Performs a full scan of the 4x4 matrix with debouncing.
- * Returns the character of the pressed key, or '\0' if no key is pressed.
+ * Checks if a key press interrupt occurred and scans the matrix if so.
+ * Returns immediately if no key is pressed.
  * 
  * @return char The pressed key (0-9, A-D, *, #) or '\0' if none
  */
 char keypad_get_key(void);
+
+/**
+ * @brief Blocking wait for a key press
+ * 
+ * Waits for a key press interrupt, then scans and debounces the matrix.
+ * CPU can sleep while waiting, making this power efficient.
+ * 
+ * @param timeout_ms Timeout in milliseconds (0 = wait forever)
+ * @return char The pressed key (0-9, A-D, *, #) or '\0' on timeout
+ */
+char keypad_wait_for_key(uint32_t timeout_ms);
 
 /**
  * @brief Demo function to test keypad functionality

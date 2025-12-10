@@ -2,7 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
-#include "keypad.h"
+#include "keypad/keypad.h"
 
 #define VIBRATION_SENSOR_PIN GPIO_NUM_36
 #include "control_task/control_task.h"
