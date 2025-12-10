@@ -29,6 +29,8 @@ bool queue_manager_init(void)
     comm_to_control_queue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(command_t));
     if (comm_to_control_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create command queue");
+        vQueueDelete(control_to_comm_queue); // Clean up event queue
+        control_to_comm_queue = NULL;
         return false;
     }
     ESP_LOGI(TAG, "Command queue created (size: %d)", COMMAND_QUEUE_SIZE);
