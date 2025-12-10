@@ -5,6 +5,8 @@
 #include "keypad.h"
 
 #define VIBRATION_SENSOR_PIN GPIO_NUM_36
+#include "control_task/control_task.h"
+#include "comm_task/comm_task.h"
 
 // Uncomment to test keypad instead of vibration sensor
 #define TEST_KEYPAD
@@ -17,33 +19,18 @@ void app_main(void)
     keypad_init();
     keypad_demo();  // This will loop forever
 #else
-    // Vibration sensor mode (original functionality)
-    printf("=== Vibration Sensor Mode ===\n");
-    
-    // Configure GPIO 36 as input (no pull-up/down - not supported on GPIO 34-39)
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << VIBRATION_SENSOR_PIN),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&io_conf);
+    printf("Smart Safe starting...\n");
 
-    printf("Vibration sensor monitoring started\n");
+    // Create control task (high priority) - handles sensors, keypad, LEDs
+    if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) == pdFAIL) {
+        printf("Error: Failed to create control_task!\n");
+        return;
+    }
 
-    int last_level = 0;
-
-    while (1) {
-        int level = gpio_get_level(VIBRATION_SENSOR_PIN);
-
-        // Detect rising edge (0 -> 1)
-        if (level == 1 && last_level == 0) {
-            printf("Vibration detected!\n");
-        }
-
-        last_level = level;
-        vTaskDelay(10 / portTICK_PERIOD_MS);  // Check every 10ms
+    // Create comm task (lower priority) - handles WiFi, MQTT
+    if (xTaskCreate(comm_task, "comm_task", 4096, NULL, 3, NULL) != pdPASS) {
+        printf("Error: Failed to create comm_task!\n");
+        // Optionally, take further action here (e.g., halt, retry, etc.)
     }
 #endif
 }

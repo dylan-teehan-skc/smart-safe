@@ -5,3 +5,6 @@ sdkconfig.old
 settings.json
 .vscode/
 .vscode/settings.json
+claude/
+docs/
+.vscode/settings.json
