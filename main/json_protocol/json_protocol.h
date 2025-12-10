@@ -1,7 +1,7 @@
 #ifndef JSON_PROTOCOL_H
 #define JSON_PROTOCOL_H
 
-/* 
+/*
  * JSON Protocol Specification
  *
  * MQTT Topics:
@@ -18,7 +18,7 @@
  *   {"ts":1234567890,"state":"alarm","event":"state_change"}
  *
  * Vibration Event:
- *   {"ts":1234567890,"state":"locked","event":"vibration","vibration":true}
+ *   {"ts":1234567890,"state":"alarm","event":"vibration","vibration":true}
  *
  * Code Entry Event:
  *   {"ts":1234567890,"state":"locked","event":"code_entry","code_ok":true}
@@ -27,6 +27,9 @@
  * Fields:
  *   ts        - Unix timestamp (seconds since epoch)
  *   state     - Current safe state: "locked", "unlocked", "alarm"
+ *               - locked:   Red LED solid ON
+ *               - unlocked: Green LED solid ON
+ *               - alarm:    Red LED FLASHING (tamper or 3+ wrong PINs)
  *   event     - Event type: "state_change", "vibration", "code_entry"
  *   vibration - Boolean, present only for vibration events
  *   code_ok   - Boolean, present only for code entry events
@@ -44,8 +47,11 @@
  * Set Code Command:
  *   {"command":"set_code","code":"1234"}
  *
+ * Reset Alarm Command:
+ *   {"command":"reset_alarm"}
+ *
  * Fields:
- *   command - Command type: "lock", "unlock", "set_code"
+ *   command - Command type: "lock", "unlock", "set_code", "reset_alarm"
  *   code    - New PIN code (required only for set_code command)
  */
 

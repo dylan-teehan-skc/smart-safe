@@ -55,6 +55,14 @@ static void handle_incoming_command(command_t *cmd)
             ESP_LOGI(TAG, "Received SET_CODE command: %s", cmd->code);
             // TODO: Store new code in NVS
             break;
+
+        case CMD_RESET_ALARM:
+            ESP_LOGI(TAG, "Received RESET_ALARM command");
+            if (current_state == STATE_ALARM) {
+                current_state = STATE_LOCKED;
+                notify_state_change();
+            }
+            break;
     }
 }
 

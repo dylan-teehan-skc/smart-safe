@@ -127,6 +127,10 @@ bool json_to_command(const char *json, size_t len, command_t *cmd)
         strncpy(cmd->code, code->valuestring, sizeof(cmd->code) - 1);
         cmd->code[sizeof(cmd->code) - 1] = '\0';
     }
+    else if (strcmp(cmd_str, "reset_alarm") == 0) {
+        cmd->type = CMD_RESET_ALARM;
+        cmd->code[0] = '\0';
+    }
     else {
         ESP_LOGE(TAG, "Unknown command: %s", cmd_str);
         cJSON_Delete(root);

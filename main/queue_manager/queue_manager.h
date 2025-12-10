@@ -36,7 +36,8 @@ typedef struct {
 typedef enum {
     CMD_LOCK,            // Lock the safe
     CMD_UNLOCK,          // Unlock the safe
-    CMD_SET_CODE         // Change the PIN code
+    CMD_SET_CODE,        // Change the PIN code
+    CMD_RESET_ALARM      // Reset alarm state (returns to locked)
 } command_type_t;
 
 // Command message sent from Comm to Control
