@@ -15,5 +15,8 @@ void app_main(void)
     }
 
     // Create comm task (lower priority) - handles WiFi, MQTT
-    xTaskCreate(comm_task, "comm_task", 4096, NULL, 3, NULL);
+    if (xTaskCreate(comm_task, "comm_task", 4096, NULL, 3, NULL) != pdPASS) {
+        printf("Error: Failed to create comm_task!\n");
+        // Optionally, take further action here (e.g., halt, retry, etc.)
+    }
 }
