@@ -17,7 +17,7 @@ void keypad_init(void);
  * Performs a full scan of the 4x4 matrix with debouncing.
  * Returns the character of the pressed key, or '\0' if no key is pressed.
  * 
- * @return char The pressed key ('0'-'9', 'A'-'D', '*', '#') or '\0' if none
+ * @return char The pressed key (0-9, A-D, *, #) or '\0' if none
  */
 char keypad_get_key(void);
 

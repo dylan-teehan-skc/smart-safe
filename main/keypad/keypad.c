@@ -86,22 +86,21 @@ char keypad_get_key(void)
         // Drive current row low
         gpio_set_level(row_pins[row], 0);
         
-        // Small delay to let the signal stabilize
+        // Delay to let the signal stabilize
         vTaskDelay(1 / portTICK_PERIOD_MS);
         
-        // Read all columns
         for (int col = 0; col < 4; col++) {
             int level = gpio_get_level(col_pins[col]);
             
-            // If column is low, a key is pressed at this row/col intersection
+            // If col is low, key at this row/col is pressed
             if (level == 0) {
                 detected_key = key_map[row][col];
-                break;  // Found a key, no need to check other columns
+                break;
             }
         }
         
         if (detected_key != '\0') {
-            break;  // Found a key, no need to scan other rows
+            break;
         }
     }
     
@@ -110,12 +109,12 @@ char keypad_get_key(void)
         gpio_set_level(row_pins[i], 1);
     }
     
-    // Implement simple debouncing
+    // Debouncing logic
     if (detected_key == last_key) {
         debounce_count++;
         if (debounce_count >= DEBOUNCE_THRESHOLD) {
-            debounce_count = DEBOUNCE_THRESHOLD;  // Cap at threshold
-            return detected_key;  // Key is stable, return it
+            debounce_count = DEBOUNCE_THRESHOLD; 
+            return detected_key;
         }
     } else {
         // Key changed, reset debounce counter
