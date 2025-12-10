@@ -118,7 +118,11 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
 static void mqtt_init(void)
 {
     esp_mqtt_client_config_t cfg = {
-        .broker.uri = MQTT_BROKER_URI,
+        .broker = {
+            .address = {
+                .uri = MQTT_BROKER_URI,
+            },
+        },
     };
 
     mqtt_client = esp_mqtt_client_init(&cfg);
