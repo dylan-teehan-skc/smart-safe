@@ -74,6 +74,9 @@ bool receive_command(command_t *cmd)
     if (comm_to_control_queue == NULL) {
         return false;
     }
+    if (cmd == NULL) {
+        return false;
+    }
 
     return xQueueReceive(comm_to_control_queue, cmd, 0) == pdTRUE;
 }
