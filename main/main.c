@@ -4,10 +4,10 @@
 #include "driver/gpio.h"
 #include "keypad/keypad.h"
 
-#define VIBRATION_SENSOR_PIN GPIO_NUM_36
 #include "control_task/control_task.h"
 #include "comm_task/comm_task.h"
 
+#define VIBRATION_SENSOR_PIN GPIO_NUM_36
 void app_main(void)
 {
     printf("Smart Safe starting...\n");
