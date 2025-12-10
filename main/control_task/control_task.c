@@ -1,5 +1,6 @@
 #include "control_task.h"
 #include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -65,14 +66,66 @@ static void handle_incoming_command(command_t *cmd)
             break;
     }
 }
+#include "../state_machine/state_machine.h"
+#include "../led/leds.h"
+
+#define CORRECT_PIN "1234"
+
+static safe_state_machine_t safe_sm;
+
+static const char* state_to_string(safe_state_t state)
+{
+    switch (state) {
+        case STATE_LOCKED:
+            return "LOCKED";
+        case STATE_UNLOCKED:
+            return "UNLOCKED";
+        case STATE_ALARM:
+            return "ALARM";
+        default:
+            return "UNKNOWN";
+    }
+}
+
+static void process_pin_entry(const char *pin)
+{
+    printf("\n[PIN]: %s\n", pin);
+
+    if (strcmp(pin, CORRECT_PIN) == 0) {
+        printf("[SM]: Correct PIN\n");
+        safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_CORRECT_PIN);
+        printf("[STATE]: -> %s\n", state_to_string(new_state));
+
+        if (new_state == STATE_UNLOCKED) {
+            set_unlocked_led();
+        } else if (new_state == STATE_LOCKED) {
+            set_locked_led();
+        }
+    } else {
+        printf("[SM]: Wrong PIN\n");
+        safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_WRONG_PIN);
+        uint8_t wrong_count = state_machine_get_wrong_count(&safe_sm);
+        printf("[COUNT]: %d/3\n", wrong_count);
+        printf("[STATE]: -> %s\n", state_to_string(new_state));
+
+        if (new_state == STATE_ALARM) {
+            set_alarm_led_flashing();
+        }
+    }
+}
 
 void control_task(void *pvParameters)
 {
     (void)pvParameters;
-    ESP_LOGI(TAG, "Control task started");
+    ESP_LOGI(TAG, "\nControl task started");
 
     // Send initial state
     notify_state_change();
+    
+    leds_init();
+    set_locked_led();
+    safe_sm = state_machine_init();
+    printf("State machine ready: %s\n\n", state_to_string(safe_sm.current_state));
 
     while (1) {
         // Check for incoming commands (non-blocking)

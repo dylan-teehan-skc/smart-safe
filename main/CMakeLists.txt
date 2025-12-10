@@ -4,4 +4,7 @@ idf_component_register(SRCS "main.c"
                              "queue_manager/queue_manager.c"
                             "json_protocol/json_protocol.c"
                              "keypad/keypad.c"
-                    INCLUDE_DIRS "." "keypad")
+                             "state_machine/state_machine.c"
+                             "led/leds.c"
+                    INCLUDE_DIRS "." "keypad"
+                    )
