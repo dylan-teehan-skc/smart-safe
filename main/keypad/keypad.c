@@ -142,7 +142,11 @@ void keypad_init(void)
     gpio_config(&col_conf);
     
     // Install GPIO ISR service
-    gpio_install_isr_service(0);
+    esp_err_t isr_ret = gpio_install_isr_service(0);  
+    if (isr_ret != ESP_OK && isr_ret != ESP_ERR_INVALID_STATE) {  
+        ESP_LOGE(TAG, "Failed to install GPIO ISR service: %s", esp_err_to_name(isr_ret));  
+        return;  
+    }  
     
     // Add ISR handlers for each column pin
     for (int i = 0; i < 4; i++) {
