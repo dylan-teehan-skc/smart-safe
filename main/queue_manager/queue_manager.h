@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// Max PIN length (4-digit PIN + null terminator, with room for longer codes)
+#define MAX_PIN_LENGTH 8
+
 // Event types (Control Task -> Comm Task)
 typedef enum {
     EVT_STATE_CHANGE,    // Safe state changed (locked/unlocked/alarm)
@@ -39,7 +42,7 @@ typedef enum {
 // Command message sent from Comm to Control
 typedef struct {
     command_type_t type;
-    char code[8];        // New PIN for CMD_SET_CODE
+    char code[MAX_PIN_LENGTH];  // New PIN for CMD_SET_CODE
 } command_t;
 
 // Queue handles
@@ -47,7 +50,8 @@ extern QueueHandle_t control_to_comm_queue;  // Events: Control -> Comm
 extern QueueHandle_t comm_to_control_queue;  // Commands: Comm -> Control
 
 // Initialize both queues - call from app_main()
-void queue_manager_init(void);
+// Returns true on success, false if queue creation failed
+bool queue_manager_init(void);
 
 // Send event from Control Task to Comm Task
 bool send_event(event_t *event);

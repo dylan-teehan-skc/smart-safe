@@ -23,7 +23,10 @@ void app_main(void)
     ESP_LOGI(TAG, "NVS initialized");
 
     // Initialize queues for inter-task communication
-    queue_manager_init();
+    if (!queue_manager_init()) {
+        ESP_LOGE(TAG, "Failed to initialize queues");
+        return;
+    }
 
     // Create control task (high priority) - handles sensors, keypad, LEDs
     if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) != pdPASS) {

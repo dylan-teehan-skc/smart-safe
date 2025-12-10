@@ -3,35 +3,42 @@
 
 static const char *TAG = "QUEUE";
 
+// Event queue holds telemetry from Control -> Comm
+// Size 10: buffers events during brief network delays without blocking Control Task
 #define EVENT_QUEUE_SIZE   10
+
+// Command queue holds remote commands from Comm -> Control
+// Size 5: commands are infrequent, smaller queue saves RAM
 #define COMMAND_QUEUE_SIZE 5
 
 // Queue handles
 QueueHandle_t control_to_comm_queue = NULL;
 QueueHandle_t comm_to_control_queue = NULL;
 
-void queue_manager_init(void)
+bool queue_manager_init(void)
 {
     // Create event queue (Control -> Comm)
     control_to_comm_queue = xQueueCreate(EVENT_QUEUE_SIZE, sizeof(event_t));
     if (control_to_comm_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create event queue");
-    } else {
-        ESP_LOGI(TAG, "Event queue created (size: %d)", EVENT_QUEUE_SIZE);
+        return false;
     }
+    ESP_LOGI(TAG, "Event queue created (size: %d)", EVENT_QUEUE_SIZE);
 
     // Create command queue (Comm -> Control)
     comm_to_control_queue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(command_t));
     if (comm_to_control_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create command queue");
-    } else {
-        ESP_LOGI(TAG, "Command queue created (size: %d)", COMMAND_QUEUE_SIZE);
+        return false;
     }
+    ESP_LOGI(TAG, "Command queue created (size: %d)", COMMAND_QUEUE_SIZE);
+
+    return true;
 }
 
 bool send_event(event_t *event)
 {
-    if (control_to_comm_queue == NULL) {
+    if (event == NULL || control_to_comm_queue == NULL) {
         return false;
     }
 
@@ -46,7 +53,7 @@ bool send_event(event_t *event)
 
 bool receive_event(event_t *event, uint32_t timeout_ms)
 {
-    if (control_to_comm_queue == NULL) {
+    if (event == NULL || control_to_comm_queue == NULL) {
         return false;
     }
 
@@ -56,7 +63,7 @@ bool receive_event(event_t *event, uint32_t timeout_ms)
 
 bool send_command(command_t *cmd)
 {
-    if (comm_to_control_queue == NULL) {
+    if (cmd == NULL || comm_to_control_queue == NULL) {
         return false;
     }
 
@@ -71,7 +78,7 @@ bool send_command(command_t *cmd)
 
 bool receive_command(command_t *cmd)
 {
-    if (comm_to_control_queue == NULL) {
+    if (cmd == NULL || comm_to_control_queue == NULL) {
         return false;
     }
     if (cmd == NULL) {

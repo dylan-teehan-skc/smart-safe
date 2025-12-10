@@ -17,6 +17,7 @@ const char* state_to_string(safe_state_t state)
 
 int string_to_state(const char *str)
 {
+    if (str == NULL) return -1;
     if (strcmp(str, "locked") == 0)   return STATE_LOCKED;
     if (strcmp(str, "unlocked") == 0) return STATE_UNLOCKED;
     if (strcmp(str, "alarm") == 0)    return STATE_ALARM;
@@ -25,6 +26,10 @@ int string_to_state(const char *str)
 
 int event_to_json(const event_t *event, char *buffer, size_t buffer_size)
 {
+    if (event == NULL || buffer == NULL || buffer_size == 0) {
+        return -1;
+    }
+
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
         ESP_LOGE(TAG, "Failed to create JSON object for event serialization");
@@ -70,6 +75,10 @@ int event_to_json(const event_t *event, char *buffer, size_t buffer_size)
 
 bool json_to_command(const char *json, size_t len, command_t *cmd)
 {
+    if (json == NULL || cmd == NULL || len == 0) {
+        return false;
+    }
+
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (root == NULL) {
         ESP_LOGE(TAG, "Failed to parse JSON command");
