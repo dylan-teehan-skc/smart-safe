@@ -2,11 +2,24 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+#include "keypad.h"
 
 #define VIBRATION_SENSOR_PIN GPIO_NUM_36
 
+// Uncomment to test keypad instead of vibration sensor
+#define TEST_KEYPAD
+
 void app_main(void)
 {
+#ifdef TEST_KEYPAD
+    // Keypad test mode
+    printf("=== Keypad Test Mode ===\n");
+    keypad_init();
+    keypad_demo();  // This will loop forever
+#else
+    // Vibration sensor mode (original functionality)
+    printf("=== Vibration Sensor Mode ===\n");
+    
     // Configure GPIO 36 as input (no pull-up/down - not supported on GPIO 34-39)
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << VIBRATION_SENSOR_PIN),
@@ -32,4 +45,5 @@ void app_main(void)
         last_level = level;
         vTaskDelay(10 / portTICK_PERIOD_MS);  // Check every 10ms
     }
+#endif
 }
