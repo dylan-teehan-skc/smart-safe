@@ -79,14 +79,14 @@ void control_task(void *pvParameters)
         command_t cmd;
         if (receive_command(&cmd, 0)) {
             handle_incoming_command(&cmd);
+        } else {
+            // Block until interrupt semaphore or command received
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
 
         // TODO: Keypad - use GPIO interrupt on column pins, ISR gives semaphore
         // TODO: Vibration sensor - use GPIO interrupt, ISR gives semaphore
         // TODO: Update LEDs based on state
         // TODO: Handle auto-lock timeout using FreeRTOS software timer
-
-        // Block until interrupt semaphore or command received
-        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
