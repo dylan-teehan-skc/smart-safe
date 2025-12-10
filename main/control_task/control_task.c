@@ -5,6 +5,7 @@
 
 void control_task(void *pvParameters)
 {
+    (void)pvParameters;
     printf("Control task started\n");
 
     while (1) {
