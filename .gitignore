@@ -1,3 +1,7 @@
 build/
 sdkconfig
 sdkconfig.old
+.pio/.DS_Store
+settings.json
+.vscode/
+.vscode/settings.json
