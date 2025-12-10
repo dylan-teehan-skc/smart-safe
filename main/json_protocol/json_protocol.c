@@ -27,7 +27,7 @@ int event_to_json(const event_t *event, char *buffer, size_t buffer_size)
 {
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
-        ESP_LOGE(TAG, "Failed to create JSON object");
+        ESP_LOGE(TAG, "Failed to create JSON object for event serialization");
         return -1;
     }
 
