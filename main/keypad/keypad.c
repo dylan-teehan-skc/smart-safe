@@ -39,6 +39,8 @@ static QueueHandle_t keypad_queue = NULL;
 
 // Debounce timer for ISR
 static volatile TickType_t last_interrupt_time = 0;
+// Debounce delay in milliseconds. 50ms is a typical value for mechanical keypads to filter out switch bounce.
+// This value may need adjustment depending on the specific keypad hardware used.
 #define DEBOUNCE_DELAY_MS 50
 
 // ISR handler - called when any column pin goes LOW
