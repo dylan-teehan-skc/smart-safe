@@ -1,9 +1,13 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/gpio.h"
+#include "keypad/keypad.h"
+
 #include "control_task/control_task.h"
 #include "comm_task/comm_task.h"
 
+#define VIBRATION_SENSOR_PIN GPIO_NUM_36
 void app_main(void)
 {
     printf("Smart Safe starting...\n");
