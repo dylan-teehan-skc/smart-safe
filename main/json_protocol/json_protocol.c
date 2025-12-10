@@ -11,7 +11,9 @@ const char* state_to_string(safe_state_t state)
         case STATE_LOCKED:   return "locked";
         case STATE_UNLOCKED: return "unlocked";
         case STATE_ALARM:    return "alarm";
-        default:             return "unknown";
+        default:
+            ESP_LOGE(TAG, "Invalid state value: %d", state);
+            return "unknown";
     }
 }
 
@@ -118,14 +120,16 @@ bool json_to_command(const char *json, size_t len, command_t *cmd)
             return false;
         }
 
-        // Validate code length (max 7 characters)
-        if (strlen(code->valuestring) > sizeof(cmd->code) - 1) {
-            ESP_LOGE(TAG, "Code too long (max %d characters): '%s'", (int)(sizeof(cmd->code) - 1), code->valuestring);
+        // Validate code length
+        size_t code_len = strlen(code->valuestring);
+        if (code_len >= sizeof(cmd->code)) {
+            ESP_LOGE(TAG, "Code too long (max %d chars)", (int)(sizeof(cmd->code) - 1));
             cJSON_Delete(root);
             return false;
         }
-        strncpy(cmd->code, code->valuestring, sizeof(cmd->code) - 1);
-        cmd->code[sizeof(cmd->code) - 1] = '\0';
+
+        // Safe to copy - length already validated
+        strcpy(cmd->code, code->valuestring);
     }
     else if (strcmp(cmd_str, "reset_alarm") == 0) {
         cmd->type = CMD_RESET_ALARM;
