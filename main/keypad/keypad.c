@@ -78,9 +78,9 @@ char keypad_get_key(void)
     
     // Scan each row
     for (int row = 0; row < 4; row++) {
-        // Set all rows high first
-        for (int i = 0; i < 4; i++) {
-            gpio_set_level(row_pins[i], 1);
+        // Set previous row high (except for first iteration)
+        if (row > 0) {
+            gpio_set_level(row_pins[row - 1], 1);
         }
         
         // Drive current row low
