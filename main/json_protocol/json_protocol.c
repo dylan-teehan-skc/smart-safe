@@ -69,6 +69,10 @@ int event_to_json(const event_t *event, char *buffer, size_t buffer_size)
     free(json_str);
     cJSON_Delete(root);
 
+    if (len >= buffer_size) {
+        ESP_LOGE(TAG, "JSON output truncated: required %d bytes, buffer size %zu", len + 1, buffer_size);
+        return -1;
+    }
     ESP_LOGD(TAG, "Event JSON: %s", buffer);
     return len;
 }

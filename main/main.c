@@ -36,6 +36,10 @@ void app_main(void)
     ESP_LOGI(TAG, "Control task created (priority 5)");
 
     // Create comm task (lower priority) - handles WiFi, MQTT
+    // NOTE: The comm_task stack size is set to 8192 bytes (double control_task's 4096)
+    // This is required due to memory-intensive operations such as cJSON parsing,
+    // WiFi and MQTT stack usage, which can cause stack overflows with smaller sizes.
+    // Do not reduce this value without thoroughly testing comm_task functionality.
     if (xTaskCreate(comm_task, "comm_task", 8192, NULL, 3, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create comm_task");
         return;
