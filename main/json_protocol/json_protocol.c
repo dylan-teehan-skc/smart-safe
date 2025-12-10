@@ -105,6 +105,12 @@ bool json_to_command(const char *json, size_t len, command_t *cmd)
             return false;
         }
 
+        // Validate code length (max 7 characters)
+        if (strlen(code->valuestring) > sizeof(cmd->code) - 1) {
+            ESP_LOGE(TAG, "Code too long (max %d characters): '%s'", (int)(sizeof(cmd->code) - 1), code->valuestring);
+            cJSON_Delete(root);
+            return false;
+        }
         strncpy(cmd->code, code->valuestring, sizeof(cmd->code) - 1);
         cmd->code[sizeof(cmd->code) - 1] = '\0';
     }
