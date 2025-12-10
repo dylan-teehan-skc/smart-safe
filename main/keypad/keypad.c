@@ -194,33 +194,33 @@ char keypad_wait_for_key(uint32_t timeout_ms)
     return '\0';  // Timeout or no valid key
 }
 
-void keypad_demo(void)
-{
-    ESP_LOGI(TAG, "Starting interrupt-based keypad demo...");
-    ESP_LOGI(TAG, "Press keys on the keypad. CPU sleeps between presses.");
+// void keypad_demo(void)
+// {
+//     ESP_LOGI(TAG, "Starting interrupt-based keypad demo...");
+//     ESP_LOGI(TAG, "Press keys on the keypad. CPU sleeps between presses.");
     
-    while (1) {
-        // Blocking wait - CPU can sleep until key press
-        char key = keypad_wait_for_key(0);  // 0 = wait forever
+//     while (1) {
+//         // Blocking wait - CPU can sleep until key press
+//         char key = keypad_wait_for_key(0);  // 0 = wait forever
         
-        if (key != '\0') {
-            ESP_LOGI(TAG, "Key pressed: '%c'", key);
+//         if (key != '\0') {
+//             ESP_LOGI(TAG, "Key pressed: '%c'", key);
             
-            // Wait for key release (all columns HIGH)
-            while (1) {
-                bool all_released = true;
-                for (int i = 0; i < 4; i++) {
-                    if (gpio_get_level(col_pins[i]) == 0) {
-                        all_released = false;
-                        break;
-                    }
-                }
-                if (all_released) {
-                    ESP_LOGI(TAG, "Key released");
-                    break;
-                }
-                vTaskDelay(10 / portTICK_PERIOD_MS);
-            }
-        }
-    }
-}
+//             // Wait for key release (all columns HIGH)
+//             while (1) {
+//                 bool all_released = true;
+//                 for (int i = 0; i < 4; i++) {
+//                     if (gpio_get_level(col_pins[i]) == 0) {
+//                         all_released = false;
+//                         break;
+//                     }
+//                 }
+//                 if (all_released) {
+//                     ESP_LOGI(TAG, "Key released");
+//                     break;
+//                 }
+//                 vTaskDelay(10 / portTICK_PERIOD_MS);
+//             }
+//         }
+//     }
+// }
