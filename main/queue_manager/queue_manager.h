@@ -58,7 +58,7 @@ bool receive_event(event_t *event, uint32_t timeout_ms);
 // Send command from Comm Task to Control Task
 bool send_command(command_t *cmd);
 
-// Receive command in Control Task (non-blocking)
-bool receive_command(command_t *cmd);
+// Receive command in Control Task (blocks for timeout_ms)
+bool receive_command(command_t *cmd, uint32_t timeout_ms);
 
 #endif
