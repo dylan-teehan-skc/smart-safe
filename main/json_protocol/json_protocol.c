@@ -48,9 +48,9 @@ int event_to_json(const event_t *event, char *buffer, size_t buffer_size)
             cJSON_AddStringToObject(root, "event", "state_change");
             break;
 
-        case EVT_VIBRATION:
-            cJSON_AddStringToObject(root, "event", "vibration");
-            cJSON_AddBoolToObject(root, "vibration", event->vibration);
+        case EVT_MOVEMENT:
+            cJSON_AddStringToObject(root, "event", "movement");
+            cJSON_AddNumberToObject(root, "movement_amount", event->movement_amount);
             break;
 
         case EVT_CODE_RESULT:

@@ -12,7 +12,7 @@
 // Event types (Control Task -> Comm Task)
 typedef enum {
     EVT_STATE_CHANGE,    // Safe state changed (locked/unlocked/alarm)
-    EVT_VIBRATION,       // Vibration detected
+    EVT_MOVEMENT,        // Movement detected (from MPU6050 accelerometer)
     EVT_CODE_RESULT,     // PIN entry result (correct/incorrect)
     EVT_CODE_CHANGED     // PIN code was changed
 } event_type_t;
@@ -29,7 +29,7 @@ typedef struct {
     event_type_t type;
     uint32_t timestamp;
     safe_state_t state;
-    bool vibration;
+    float movement_amount;  // Movement magnitude in g (from accelerometer)
     bool code_ok;
 } event_t;
 

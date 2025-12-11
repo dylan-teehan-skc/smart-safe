@@ -1,7 +1,0 @@
-#ifndef CONFIG_H
-#define CONFIG_H
-
-// Copy this file to config.h and set your actual PIN
-#define CORRECT_PIN "6767"
-
-#endif // CONFIG_H

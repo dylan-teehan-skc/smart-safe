@@ -7,7 +7,7 @@
 typedef enum {
     EVENT_CORRECT_PIN = 0,
     EVENT_WRONG_PIN,
-    EVENT_VIBRATION,
+    EVENT_MOVEMENT,  // Movement detected by accelerometer
 } safe_event_t;
 
 typedef struct {
