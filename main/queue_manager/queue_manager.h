@@ -13,7 +13,8 @@
 typedef enum {
     EVT_STATE_CHANGE,    // Safe state changed (locked/unlocked/alarm)
     EVT_VIBRATION,       // Vibration detected
-    EVT_CODE_RESULT      // PIN entry result (correct/incorrect)
+    EVT_CODE_RESULT,     // PIN entry result (correct/incorrect)
+    EVT_CODE_CHANGED     // PIN code was changed
 } event_type_t;
 
 // Safe states

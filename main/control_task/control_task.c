@@ -58,7 +58,7 @@ static void process_pin_entry(const char *pin)
         ESP_LOGI(TAG, "Correct PIN entered");
         safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_CORRECT_PIN);
         ESP_LOGI(TAG, "State: %s", state_to_string(new_state));
-
+        
         if (new_state == STATE_UNLOCKED) {
             set_unlocked_led();
         } else if (new_state == STATE_LOCKED) {
@@ -70,7 +70,7 @@ static void process_pin_entry(const char *pin)
         uint8_t wrong_count = state_machine_get_wrong_count(&safe_sm);
         ESP_LOGI(TAG, "Wrong attempts: %d/3", wrong_count);
         ESP_LOGI(TAG, "State: %s", state_to_string(new_state));
-
+        
         if (new_state == STATE_ALARM) {
             set_alarm_led_flashing();
         }
@@ -81,25 +81,48 @@ void control_task(void *pvParameters)
 {
     (void)pvParameters;
     ESP_LOGI(TAG, "\nControl task started");
-
+    
     leds_init();
     set_locked_led();
+    
     safe_sm = state_machine_init();
     ESP_LOGI(TAG, "State machine initialized: %s", state_to_string(safe_sm.current_state));
     
     // Send initial state
     notify_state_change(&safe_sm);
-
+    
     while (1) {
         // Check for incoming commands (non-blocking)
         command_t cmd;
         if (receive_command(&cmd, 0)) {
-            // TODO: Process incoming commands through state machine
+            // Process incoming commands
+            switch (cmd.type) {
+                case CMD_SET_CODE:
+                    ESP_LOGI(TAG, "Received SET_CODE command");
+                    // TODO: Store new code in NVS
+                    // Send confirmation event
+                    {
+                        event_t event = {
+                            .type = EVT_CODE_CHANGED,
+                            .timestamp = get_timestamp(),
+                            .state = safe_sm.current_state,
+                            .vibration = false,
+                            .code_ok = true
+                        };
+                        send_event(&event);
+                    }
+                    break;
+                
+                // Add other command cases as needed
+                default:
+                    ESP_LOGW(TAG, "Unknown command type");
+                    break;
+            }
         } else {
             // Block until interrupt semaphore or command received
             vTaskDelay(pdMS_TO_TICKS(100));
         }
-
+        
         // TODO: Keypad - use GPIO interrupt on column pins, ISR gives semaphore
         // TODO: Vibration sensor - use GPIO interrupt, ISR gives semaphore
         // TODO: Update LEDs based on state

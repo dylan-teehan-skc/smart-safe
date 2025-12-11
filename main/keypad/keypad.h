@@ -33,12 +33,4 @@ char keypad_get_key(void);
  */
 char keypad_wait_for_key(uint32_t timeout_ms);
 
-/**
- * @brief Demo function to test keypad functionality
- * 
- * Continuously scans the keypad and prints detected keys to UART.
- * Useful for testing and verification.
- */
-void keypad_demo(void);
-
 #endif // KEYPAD_H

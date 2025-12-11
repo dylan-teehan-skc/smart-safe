@@ -3,16 +3,13 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "driver/gpio.h"
-#include "keypad/keypad.h"
-
 #include "control_task/control_task.h"
 #include "comm_task/comm_task.h"
 #include "queue_manager/queue_manager.h"
+#include "keypad/keypad.h"
 
 static const char *TAG = "MAIN";
 
-#define VIBRATION_SENSOR_PIN GPIO_NUM_36
 void app_main(void)
 {
     ESP_LOGI(TAG, "Smart Safe starting...");
@@ -31,6 +28,9 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to initialize queues");
         return;
     }
+
+    // Initialize keypad
+    keypad_init();
 
     // Create control task (high priority) - handles sensors, keypad, LEDs
     if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) != pdPASS) {

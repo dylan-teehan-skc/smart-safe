@@ -57,6 +57,10 @@ int event_to_json(const event_t *event, char *buffer, size_t buffer_size)
             cJSON_AddStringToObject(root, "event", "code_entry");
             cJSON_AddBoolToObject(root, "code_ok", event->code_ok);
             break;
+
+        case EVT_CODE_CHANGED:
+            cJSON_AddStringToObject(root, "event", "code_changed");
+            break;
     }
 
     // Print to buffer
