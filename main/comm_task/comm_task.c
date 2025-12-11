@@ -15,11 +15,14 @@ static const char *TAG = "COMM";
 
 // WiFi connection status
 #define WIFI_CONNECTED_BIT BIT0
-static EventGroupHandle_t wifi_event_group;
+static EventGroupHandle_t wifi_event_group = NULL;
 
 // MQTT client
 static esp_mqtt_client_handle_t mqtt_client = NULL;
 static bool mqtt_connected = false;
+
+// Track initialization state
+static bool netif_initialized = false;
 
 // JSON buffer
 #define JSON_BUFFER_SIZE 256
@@ -46,12 +49,20 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-static void wifi_init(void)
+static bool wifi_init(void)
 {
     wifi_event_group = xEventGroupCreate();
+    if (wifi_event_group == NULL) {
+        ESP_LOGE(TAG, "Failed to create WiFi event group");
+        return false;
+    }
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    // Only initialize netif and event loop once
+    if (!netif_initialized) {
+        ESP_ERROR_CHECK(esp_netif_init());
+        ESP_ERROR_CHECK(esp_event_loop_create_default());
+        netif_initialized = true;
+    }
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -77,6 +88,7 @@ static void wifi_init(void)
 
     // Wait for connection
     xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
+    return true;
 }
 
 // ============================================================================
@@ -111,7 +123,15 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
 
         case MQTT_EVENT_DATA:
             ESP_LOGI(TAG, "Command: %.*s", event->data_len, event->data);
-            handle_mqtt_command(event->data, event->data_len);
+            // Create null-terminated copy for safe JSON parsing
+            if (event->data_len > 0 && event->data_len < JSON_BUFFER_SIZE) {
+                char cmd_buffer[JSON_BUFFER_SIZE];
+                memcpy(cmd_buffer, event->data, event->data_len);
+                cmd_buffer[event->data_len] = '\0';
+                handle_mqtt_command(cmd_buffer, event->data_len);
+            } else {
+                ESP_LOGW(TAG, "Command too large or empty");
+            }
             break;
 
         case MQTT_EVENT_ERROR:
@@ -123,7 +143,7 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-static void mqtt_init(void)
+static bool mqtt_init(void)
 {
     esp_mqtt_client_config_t cfg = {
         .broker = {
@@ -135,13 +155,31 @@ static void mqtt_init(void)
 
     mqtt_client = esp_mqtt_client_init(&cfg);
     if (mqtt_client == NULL) {
-        ESP_LOGE(TAG, "Failed to initialize MQTT client");
-        return;
+        ESP_LOGE(TAG, "Failed to create MQTT client");
+        return false;
     }
+
     esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(mqtt_client);
 
     ESP_LOGI(TAG, "MQTT connecting to %s", MQTT_BROKER_URI);
+    return true;
+}
+
+// Cleanup function for resources
+static void comm_cleanup(void)
+{
+    if (mqtt_client != NULL) {
+        esp_mqtt_client_stop(mqtt_client);
+        esp_mqtt_client_destroy(mqtt_client);
+        mqtt_client = NULL;
+    }
+    mqtt_connected = false;
+
+    if (wifi_event_group != NULL) {
+        vEventGroupDelete(wifi_event_group);
+        wifi_event_group = NULL;
+    }
 }
 
 // ============================================================================
@@ -184,8 +222,19 @@ void comm_task(void *pvParameters)
     (void)pvParameters;
     ESP_LOGI(TAG, "Comm task started");
 
-    wifi_init();
-    mqtt_init();
+    if (!wifi_init()) {
+        ESP_LOGE(TAG, "WiFi initialization failed");
+        comm_cleanup();
+        vTaskDelete(NULL);
+        return;
+    }
+
+    if (!mqtt_init()) {
+        ESP_LOGE(TAG, "MQTT initialization failed");
+        comm_cleanup();
+        vTaskDelete(NULL);
+        return;
+    }
 
     while (1) {
         event_t event;
@@ -193,4 +242,8 @@ void comm_task(void *pvParameters)
             publish_telemetry(&event);
         }
     }
+
+    // Cleanup on exit (if loop ever exits)
+    comm_cleanup();
+    vTaskDelete(NULL);
 }

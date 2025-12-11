@@ -12,3 +12,4 @@ docs/
 # Config with real credentials (use config.example.h as template)
 main/config.h
 .vscode/settings.json
+main/config.h
