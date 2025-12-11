@@ -68,30 +68,16 @@ static void handle_incoming_command(command_t *cmd)
 }
 #include "../state_machine/state_machine.h"
 #include "../led/leds.h"
-
-#define CORRECT_PIN "1234"
+#include "../json_protocol/json_protocol.h"
+#include "../config/config.h"
 
 static safe_state_machine_t safe_sm;
-
-static const char* state_to_string(safe_state_t state)
-{
-    switch (state) {
-        case STATE_LOCKED:
-            return "LOCKED";
-        case STATE_UNLOCKED:
-            return "UNLOCKED";
-        case STATE_ALARM:
-            return "ALARM";
-        default:
-            return "UNKNOWN";
-    }
-}
 
 static void process_pin_entry(const char *pin)
 {
     printf("\n[PIN]: %s\n", pin);
 
-    if (strcmp(pin, CORRECT_PIN) == 0) {
+    if (strcmp(pin, config_get_correct_pin()) == 0) {
         printf("[SM]: Correct PIN\n");
         safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_CORRECT_PIN);
         printf("[STATE]: -> %s\n", state_to_string(new_state));
@@ -118,6 +104,9 @@ void control_task(void *pvParameters)
 {
     (void)pvParameters;
     ESP_LOGI(TAG, "\nControl task started");
+
+    // Load configuration
+    config_init();
 
     // Send initial state
     notify_state_change();
