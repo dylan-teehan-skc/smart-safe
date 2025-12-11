@@ -8,4 +8,4 @@ settings.json
 claude/
 docs/
 .vscode/settings.json
-main/.env
+main/config/config.h
