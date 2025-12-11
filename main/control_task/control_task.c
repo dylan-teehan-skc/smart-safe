@@ -54,6 +54,17 @@ static void handle_incoming_command(command_t *cmd)
         case CMD_SET_CODE:
             ESP_LOGI(TAG, "Received SET_CODE command: %s", cmd->code);
             // TODO: Store new code in NVS
+            // Send confirmation event
+            {
+                event_t event = {
+                    .type = EVT_CODE_CHANGED,
+                    .timestamp = get_timestamp(),
+                    .state = current_state,
+                    .vibration = false,
+                    .code_ok = true
+                };
+                send_event(&event);
+            }
             break;
 
         case CMD_RESET_ALARM:
