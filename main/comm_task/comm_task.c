@@ -92,8 +92,12 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT connected");
             mqtt_connected = true;
-            esp_mqtt_client_subscribe(mqtt_client, MQTT_TOPIC_COMMAND, 1);
-            ESP_LOGI(TAG, "Subscribed: %s", MQTT_TOPIC_COMMAND);
+            int msg_id = esp_mqtt_client_subscribe(mqtt_client, MQTT_TOPIC_COMMAND, 1);
+            if (msg_id < 0) {
+                ESP_LOGE(TAG, "Failed to subscribe to %s, error code: %d", MQTT_TOPIC_COMMAND, msg_id);
+            } else {
+                ESP_LOGI(TAG, "Subscribed: %s (msg_id=%d)", MQTT_TOPIC_COMMAND, msg_id);
+            }
             break;
 
         case MQTT_EVENT_DISCONNECTED:
