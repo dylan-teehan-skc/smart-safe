@@ -10,14 +10,15 @@ static const char *TAG = "MPU6050";
 
 // MPU6050 registers
 #define MPU6050_PWR_MGMT_1   0x6B
+#define MPU6050_WHO_AM_I     0x75
 #define MPU6050_ACCEL_XOUT_H 0x3B
 
-// I2C port
-#define I2C_PORT I2C_NUM_0
+// I2C configuration
+#define I2C_PORT            I2C_NUM_0
+#define I2C_FREQ_HZ         100000
 
-// Last readings for movement calculation
-static float last_ax = 0, last_ay = 0, last_az = 0;
 static bool initialized = false;
+static int movement_hit_count = 0;
 
 static esp_err_t i2c_init(void)
 {
@@ -27,7 +28,7 @@ static esp_err_t i2c_init(void)
         .scl_io_num = MPU6050_SCL_PIN,
         .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 400000
+        .master.clk_speed = I2C_FREQ_HZ,
     };
 
     esp_err_t err = i2c_param_config(I2C_PORT, &conf);
@@ -36,15 +37,37 @@ static esp_err_t i2c_init(void)
     return i2c_driver_install(I2C_PORT, conf.mode, 0, 0, 0);
 }
 
-static esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data)
+static esp_err_t mpu6050_write_reg(uint8_t reg_addr, uint8_t data)
 {
-    uint8_t buf[2] = {reg, data};
-    return i2c_master_write_to_device(I2C_PORT, MPU6050_ADDR, buf, 2, pdMS_TO_TICKS(100));
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg_addr, true);
+    i2c_master_write_byte(cmd, data, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(1000));
+    i2c_cmd_link_delete(cmd);
+    return ret;
 }
 
-static esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *data, size_t len)
+static esp_err_t mpu6050_read_reg(uint8_t reg_addr, uint8_t *data, size_t len)
 {
-    return i2c_master_write_read_device(I2C_PORT, MPU6050_ADDR, &reg, 1, data, len, pdMS_TO_TICKS(100));
+    if (len == 0) return ESP_OK;
+
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg_addr, true);
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_READ, true);
+    if (len > 1) {
+        i2c_master_read(cmd, data, len - 1, I2C_MASTER_ACK);
+    }
+    i2c_master_read_byte(cmd, data + len - 1, I2C_MASTER_NACK);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(1000));
+    i2c_cmd_link_delete(cmd);
+    return ret;
 }
 
 bool mpu6050_init(void)
@@ -52,6 +75,8 @@ bool mpu6050_init(void)
     if (initialized) {
         return true;
     }
+
+    ESP_LOGI(TAG, "Initializing MPU6050...");
 
     // Initialize I2C
     esp_err_t err = i2c_init();
@@ -62,15 +87,23 @@ bool mpu6050_init(void)
     ESP_LOGI(TAG, "I2C initialized (SDA=%d, SCL=%d)", MPU6050_SDA_PIN, MPU6050_SCL_PIN);
 
     // Wake up MPU6050 (clear sleep bit)
-    err = mpu6050_write_byte(MPU6050_PWR_MGMT_1, 0x00);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "MPU6050 wake-up failed: %s", esp_err_to_name(err));
-        return false;
+    if (mpu6050_write_reg(MPU6050_PWR_MGMT_1, 0x00) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to wake MPU6050");
     }
 
-    ESP_LOGI(TAG, "MPU6050 initialized");
-    initialized = true;
-    return true;
+    // Read WHO_AM_I register to verify
+    uint8_t who_am_i = 0;
+    if (mpu6050_read_reg(MPU6050_WHO_AM_I, &who_am_i, 1) == ESP_OK) {
+        ESP_LOGI(TAG, "WHO_AM_I: 0x%02X (expected 0x68)", who_am_i);
+        if (who_am_i == 0x68) {
+            ESP_LOGI(TAG, "MPU6050 detected successfully");
+            initialized = true;
+            return true;
+        }
+    }
+
+    ESP_LOGW(TAG, "MPU6050 not detected - check wiring");
+    return false;
 }
 
 float mpu6050_read_movement(void)
@@ -80,41 +113,56 @@ float mpu6050_read_movement(void)
     }
 
     uint8_t data[6];
-    esp_err_t err = mpu6050_read_bytes(MPU6050_ACCEL_XOUT_H, data, 6);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Read failed: %s", esp_err_to_name(err));
+    if (mpu6050_read_reg(MPU6050_ACCEL_XOUT_H, data, 6) != ESP_OK) {
         return 0.0f;
     }
 
-    int16_t accel_x = (data[0] << 8) | data[1];
-    int16_t accel_y = (data[2] << 8) | data[3];
-    int16_t accel_z = (data[4] << 8) | data[5];
+    int16_t accel_x = (int16_t)((data[0] << 8) | data[1]);
+    int16_t accel_y = (int16_t)((data[2] << 8) | data[3]);
+    int16_t accel_z = (int16_t)((data[4] << 8) | data[5]);
 
-    // Convert to g (default scale is +/-2g, 16384 LSB/g)
-    float ax = accel_x / 16384.0f;
-    float ay = accel_y / 16384.0f;
-    float az = accel_z / 16384.0f;
+    // Calculate magnitude squared (avoid sqrt for efficiency)
+    int32_t magnitude_sq = (accel_x * accel_x) + (accel_y * accel_y) + (accel_z * accel_z);
 
-    // Calculate change from last reading
-    float dx = ax - last_ax;
-    float dy = ay - last_ay;
-    float dz = az - last_az;
-    float movement = sqrtf(dx*dx + dy*dy + dz*dz);
+    // Convert to approximate g value for logging
+    float magnitude = sqrtf((float)magnitude_sq) / 16384.0f;
 
-    // Store current readings
-    last_ax = ax;
-    last_ay = ay;
-    last_az = az;
-
-    return movement;
+    return magnitude;
 }
 
 bool mpu6050_movement_detected(void)
 {
-    float movement = mpu6050_read_movement();
-    if (movement > MOVEMENT_THRESHOLD) {
-        ESP_LOGW(TAG, "Movement detected: %.2fg", movement);
+    if (!initialized) {
+        return false;
+    }
+
+    uint8_t data[6];
+    if (mpu6050_read_reg(MPU6050_ACCEL_XOUT_H, data, 6) != ESP_OK) {
+        return false;
+    }
+
+    int16_t accel_x = (int16_t)((data[0] << 8) | data[1]);
+    int16_t accel_y = (int16_t)((data[2] << 8) | data[3]);
+    int16_t accel_z = (int16_t)((data[4] << 8) | data[5]);
+
+    // Calculate magnitude squared
+    int32_t magnitude_sq = (accel_x * accel_x) + (accel_y * accel_y) + (accel_z * accel_z);
+    int32_t threshold_sq = (int32_t)MOVEMENT_THRESHOLD_RAW * MOVEMENT_THRESHOLD_RAW;
+
+    // Debounce: require consecutive over-threshold readings
+    if (magnitude_sq > threshold_sq) {
+        if (movement_hit_count < MOVEMENT_HIT_COUNT) {
+            movement_hit_count++;
+        }
+    } else if (movement_hit_count > 0) {
+        movement_hit_count--;
+    }
+
+    if (movement_hit_count >= MOVEMENT_HIT_COUNT) {
+        movement_hit_count = 0;  // Reset after confirming movement
+        ESP_LOGW(TAG, "Movement detected! X:%d Y:%d Z:%d", accel_x, accel_y, accel_z);
         return true;
     }
+
     return false;
 }

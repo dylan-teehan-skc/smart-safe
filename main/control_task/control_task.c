@@ -122,10 +122,28 @@ void control_task(void *pvParameters)
         if (receive_command(&cmd, 0)) {
             // Process incoming commands
             switch (cmd.type) {
+                case CMD_LOCK:
+                    ESP_LOGI(TAG, "Received LOCK command");
+                    if (safe_sm.current_state == STATE_UNLOCKED) {
+                        state_machine_process_event(&safe_sm, EVENT_CORRECT_PIN);
+                        safe_sm.current_state = STATE_LOCKED;
+                        set_locked_led();
+                        notify_state_change(&safe_sm);
+                    }
+                    break;
+
+                case CMD_UNLOCK:
+                    ESP_LOGI(TAG, "Received UNLOCK command");
+                    if (safe_sm.current_state == STATE_LOCKED) {
+                        safe_sm.current_state = STATE_UNLOCKED;
+                        set_unlocked_led();
+                        notify_state_change(&safe_sm);
+                    }
+                    break;
+
                 case CMD_SET_CODE:
-                    ESP_LOGI(TAG, "Received SET_CODE command");
+                    ESP_LOGI(TAG, "Received SET_CODE command: %s", cmd.code);
                     // TODO: Store new code in NVS
-                    // Send confirmation event
                     {
                         event_t event = {
                             .type = EVT_CODE_CHANGED,
@@ -138,18 +156,28 @@ void control_task(void *pvParameters)
                     }
                     break;
 
-                // Add other command cases as needed
+                case CMD_RESET_ALARM:
+                    ESP_LOGI(TAG, "Received RESET_ALARM command");
+                    if (safe_sm.current_state == STATE_ALARM) {
+                        // Reset alarm to locked state
+                        safe_sm.current_state = STATE_LOCKED;
+                        safe_sm.wrong_count = 0;
+                        set_locked_led();
+                        notify_state_change(&safe_sm);
+                    }
+                    break;
+
                 default:
-                    ESP_LOGW(TAG, "Unknown command type");
+                    ESP_LOGW(TAG, "Unknown command type: %d", cmd.type);
                     break;
             }
         }
 
         // Check accelerometer for movement (only when locked)
         if (safe_sm.current_state == STATE_LOCKED) {
-            float movement = mpu6050_read_movement();
-            if (movement > MOVEMENT_THRESHOLD) {
+            if (mpu6050_movement_detected()) {
                 // Movement detected - trigger alarm
+                float movement = mpu6050_read_movement();
                 notify_movement(&safe_sm, movement);
                 safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_MOVEMENT);
                 if (new_state == STATE_ALARM) {
@@ -159,11 +187,13 @@ void control_task(void *pvParameters)
             }
         }
 
+        // Update LED flashing for alarm state
+        leds_update();
+
         // Small delay to prevent busy-waiting
         vTaskDelay(pdMS_TO_TICKS(50));
 
         // TODO: Keypad - use GPIO interrupt on column pins, ISR gives semaphore
-        // TODO: Update LEDs based on state
         // TODO: Handle auto-lock timeout using FreeRTOS software timer
     }
 }
