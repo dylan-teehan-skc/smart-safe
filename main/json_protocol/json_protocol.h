@@ -17,22 +17,22 @@
  *   {"ts":1234567890,"state":"unlocked","event":"state_change"}
  *   {"ts":1234567890,"state":"alarm","event":"state_change"}
  *
- * Vibration Event:
- *   {"ts":1234567890,"state":"alarm","event":"vibration","vibration":true}
+ * Movement Event (from MPU6050 accelerometer):
+ *   {"ts":1234567890,"state":"alarm","event":"movement","movement_amount":0.45}
  *
  * Code Entry Event:
  *   {"ts":1234567890,"state":"locked","event":"code_entry","code_ok":true}
  *   {"ts":1234567890,"state":"locked","event":"code_entry","code_ok":false}
  *
  * Fields:
- *   ts        - Unix timestamp (seconds since epoch)
- *   state     - Current safe state: "locked", "unlocked", "alarm"
- *               - locked:   Red LED solid ON
- *               - unlocked: Green LED solid ON
- *               - alarm:    Red LED FLASHING (tamper or 3+ wrong PINs)
- *   event     - Event type: "state_change", "vibration", "code_entry"
- *   vibration - Boolean, present only for vibration events
- *   code_ok   - Boolean, present only for code entry events
+ *   ts              - Unix timestamp (seconds since epoch)
+ *   state           - Current safe state: "locked", "unlocked", "alarm"
+ *                     - locked:   Red LED solid ON
+ *                     - unlocked: Green LED solid ON
+ *                     - alarm:    Red LED FLASHING (tamper or 3+ wrong PINs)
+ *   event           - Event type: "state_change", "movement", "code_entry"
+ *   movement_amount - Float (g units), present only for movement events
+ *   code_ok         - Boolean, present only for code entry events
  *
  * -------------------------------------------------------------------------
  * COMMAND MESSAGES (received by ESP32)

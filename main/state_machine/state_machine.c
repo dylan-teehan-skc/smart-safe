@@ -42,13 +42,14 @@ safe_state_t state_machine_process_event(safe_state_machine_t *sm, safe_event_t 
                 if (sm->wrong_count >= MAX_WRONG_ATTEMPTS) {
                     set_alarm(sm);
                 }
+            } else if (event == EVENT_MOVEMENT) {
+                // Movement detected while locked - trigger alarm
+                set_alarm(sm);
             }
             break;
 
         case STATE_UNLOCKED:
-            if (event == EVENT_VIBRATION) {
-                set_alarm(sm);
-            }
+            // No alarm on movement when unlocked (user is accessing the safe)
             break;
 
         case STATE_ALARM:
