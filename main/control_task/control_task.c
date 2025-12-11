@@ -6,6 +6,10 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "../queue_manager/queue_manager.h"
+#include "../state_machine/state_machine.h"
+#include "../led/leds.h"
+#include "../json_protocol/json_protocol.h"
+#include "../config/config.h"
 
 static const char *TAG = "CTRL";
 
@@ -28,12 +32,6 @@ static void notify_state_change(safe_state_machine_t *sm)
     send_event(&event);
     ESP_LOGI(TAG, "State changed to: %s", state_to_string(sm->current_state));
 }
-
-
-#include "../state_machine/state_machine.h"
-#include "../led/leds.h"
-#include "../json_protocol/json_protocol.h"
-#include "../config/config.h"
 
 static safe_state_machine_t safe_sm;
 

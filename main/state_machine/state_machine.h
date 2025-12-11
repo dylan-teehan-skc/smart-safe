@@ -2,12 +2,7 @@
 #define STATE_MACHINE_H
 
 #include <stdint.h>
-
-typedef enum {
-    STATE_LOCKED = 0,
-    STATE_UNLOCKED,
-    STATE_ALARM,
-} safe_state_t;
+#include "../queue_manager/queue_manager.h"
 
 typedef enum {
     EVENT_CORRECT_PIN = 0,
