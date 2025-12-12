@@ -161,8 +161,10 @@ void keypad_init(void)
 char keypad_get_key(void)
 {
     uint8_t dummy;
+    static bool key_is_pressed = false;
+    static TickType_t last_press_time = 0;
     
-    // Check for interrupt signal (non-blocking, 0 timeout)
+    // Check for interrupt signal (non-blocking)
     if (xQueueReceive(keypad_queue, &dummy, 0) == pdTRUE) {
         // Interrupt occurred, scan matrix
         char key = keypad_scan();
@@ -172,7 +174,25 @@ char keypad_get_key(void)
         char key2 = keypad_scan();
         
         if (key == key2 && key != '\0') {
-            return key;
+            // Key is pressed
+            if (!key_is_pressed) {
+                // First press of this key
+                key_is_pressed = true;
+                last_press_time = xTaskGetTickCount();
+                return key;  // Return the key
+            }
+            // Else: key still held down, ignore (prevents repeat)
+        } else {
+            // No key detected or mismatch = key released
+            key_is_pressed = false;
+        }
+    } else {
+        // Auto-reset if no activity for 500ms (safety fallback for stuck keys)
+        if (key_is_pressed) {
+            TickType_t now = xTaskGetTickCount();
+            if ((now - last_press_time) > pdMS_TO_TICKS(500)) {
+                key_is_pressed = false;
+            }
         }
     }
     
