@@ -36,21 +36,50 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 {
     if (event_base == WIFI_EVENT) {
         if (event_id == WIFI_EVENT_STA_START) {
+            ESP_LOGI(TAG, "WiFi station started, attempting connection...");
             esp_wifi_connect();
         } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-            ESP_LOGW(TAG, "WiFi disconnected, reconnecting...");
+            wifi_event_sta_disconnected_t *disconn = (wifi_event_sta_disconnected_t *)event_data;
+            ESP_LOGW(TAG, "WiFi disconnected - Reason: %d", disconn->reason);
+            
+            // Log specific disconnect reasons
+            switch (disconn->reason) {
+                case WIFI_REASON_AUTH_EXPIRE:
+                case WIFI_REASON_AUTH_LEAVE:
+                case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+                case WIFI_REASON_HANDSHAKE_TIMEOUT:
+                    ESP_LOGE(TAG, "Authentication failed - check password");
+                    break;
+                case WIFI_REASON_NO_AP_FOUND:
+                    ESP_LOGE(TAG, "Access point not found - check SSID");
+                    break;
+                case WIFI_REASON_BEACON_TIMEOUT:
+                    ESP_LOGE(TAG, "Beacon timeout - weak signal or AP disappeared");
+                    break;
+                default:
+                    ESP_LOGW(TAG, "Other disconnect reason: %d", disconn->reason);
+                    break;
+            }
+            
+            ESP_LOGI(TAG, "Reconnecting...");
             mqtt_connected = false;
             esp_wifi_connect();
+        } else {
+            ESP_LOGD(TAG, "WiFi event: %ld", event_id);
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "Connected! IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        ESP_LOGI(TAG, "Netmask: " IPSTR, IP2STR(&event->ip_info.netmask));
+        ESP_LOGI(TAG, "Gateway: " IPSTR, IP2STR(&event->ip_info.gw));
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
     }
 }
 
 static bool wifi_init(void)
 {
+    ESP_LOGI(TAG, "Starting WiFi initialization...");
+    
     wifi_event_group = xEventGroupCreate();
     if (wifi_event_group == NULL) {
         ESP_LOGE(TAG, "Failed to create WiFi event group");
@@ -59,6 +88,7 @@ static bool wifi_init(void)
 
     // Only initialize netif and event loop once
     if (!netif_initialized) {
+        ESP_LOGI(TAG, "Initializing network interface...");
         ESP_ERROR_CHECK(esp_netif_init());
         ESP_ERROR_CHECK(esp_event_loop_create_default());
         netif_initialized = true;
@@ -67,27 +97,40 @@ static bool wifi_init(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_LOGI(TAG, "WiFi driver initialized");
 
     // Register handlers
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
+    ESP_LOGI(TAG, "Event handlers registered");
 
     // Set credentials
     wifi_config_t wifi_config = {
         .sta = {
             .ssid = WIFI_SSID,
             .password = WIFI_PASSWORD,
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
+
+    ESP_LOGI(TAG, "Configuring WiFi credentials - SSID: %s, Password length: %d", 
+             WIFI_SSID, strlen(WIFI_PASSWORD));
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    
+    // Disable power saving for more reliable connection
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    ESP_LOGI(TAG, "WiFi power saving disabled");
 
     ESP_LOGI(TAG, "Connecting to WiFi: %s", WIFI_SSID);
+    ESP_LOGI(TAG, "Waiting for connection (this may take 10-30 seconds)...");
 
     // Wait for connection
     xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
+    
+    ESP_LOGI(TAG, "WiFi initialization complete");
     return true;
 }
 
