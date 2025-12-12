@@ -105,12 +105,11 @@ static bool has_buffered_events(void)
 
 static void flush_buffered_events(void)
 {
-    if (event_buffer.count == 0) {
+    if (!has_buffered_events()) {
         return;
     }
 
-    int initial_count = event_buffer.count;
-    ESP_LOGI(TAG, "Flushing %d buffered events", initial_count);
+    ESP_LOGI(TAG, "Flushing buffered events");
 
     event_t event;
     while (get_buffered_event(&event)) {
