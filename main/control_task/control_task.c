@@ -127,8 +127,26 @@ static void process_pin_entry(const char *pin)
             send_event(&event);
         } else if (safe_sm.current_state == STATE_UNLOCKED) {
             ESP_LOGW(TAG, "Wrong PIN entered (safe already unlocked, ignoring)");
+            // Send code result event for monitoring
+            event_t event = {
+                .type = EVT_CODE_RESULT,
+                .timestamp = get_timestamp(),
+                .state = safe_sm.current_state,
+                .movement_amount = 0.0f,
+                .code_ok = false
+            };
+            send_event(&event);
         } else if (safe_sm.current_state == STATE_ALARM) {
             ESP_LOGW(TAG, "Wrong PIN entered (safe in alarm state, use correct PIN to reset)");
+            // Send code result event for monitoring
+            event_t event = {
+                .type = EVT_CODE_RESULT,
+                .timestamp = get_timestamp(),
+                .state = safe_sm.current_state,
+                .movement_amount = 0.0f,
+                .code_ok = false
+            };
+            send_event(&event);
         }
     }
 }
