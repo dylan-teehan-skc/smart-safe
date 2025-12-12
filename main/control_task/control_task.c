@@ -103,26 +103,33 @@ static void process_pin_entry(const char *pin)
         // Notify state change
         notify_state_change(&safe_sm);
     } else {
-        ESP_LOGI(TAG, "Wrong PIN entered");
-        safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_WRONG_PIN);
-        uint8_t wrong_count = state_machine_get_wrong_count(&safe_sm);
-        ESP_LOGI(TAG, "Wrong attempts: %d/3", wrong_count);
-        ESP_LOGI(TAG, "State: %s", state_to_string(new_state));
+        // Wrong PIN entered - only process if safe is locked
+        if (safe_sm.current_state == STATE_LOCKED) {
+            ESP_LOGW(TAG, "Wrong PIN entered");
+            safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_WRONG_PIN);
+            uint8_t wrong_count = state_machine_get_wrong_count(&safe_sm);
+            ESP_LOGW(TAG, "Wrong attempts: %d/3", wrong_count);
+            ESP_LOGI(TAG, "State: %s", state_to_string(new_state));
 
-        if (new_state == STATE_ALARM) {
-            set_alarm_led_flashing();
-            notify_state_change(&safe_sm);
+            if (new_state == STATE_ALARM) {
+                set_alarm_led_flashing();
+                notify_state_change(&safe_sm);
+            }
+            
+            // Send code result event
+            event_t event = {
+                .type = EVT_CODE_RESULT,
+                .timestamp = get_timestamp(),
+                .state = safe_sm.current_state,
+                .movement_amount = 0.0f,
+                .code_ok = false
+            };
+            send_event(&event);
+        } else if (safe_sm.current_state == STATE_UNLOCKED) {
+            ESP_LOGW(TAG, "Wrong PIN entered (safe already unlocked, ignoring)");
+        } else if (safe_sm.current_state == STATE_ALARM) {
+            ESP_LOGW(TAG, "Wrong PIN entered (safe in alarm state, use correct PIN to reset)");
         }
-        
-        // Send code result event
-        event_t event = {
-            .type = EVT_CODE_RESULT,
-            .timestamp = get_timestamp(),
-            .state = safe_sm.current_state,
-            .movement_amount = 0.0f,
-            .code_ok = false
-        };
-        send_event(&event);
     }
 }
 
