@@ -15,6 +15,9 @@
 
 static const char *TAG = "CTRL";
 
+// PIN configuration
+#define PIN_LENGTH 4  // Expected PIN length (4 digits)
+
 // Get current timestamp in seconds
 static uint32_t get_timestamp(void)
 {
@@ -134,14 +137,14 @@ static void handle_key_press(char key)
 {
     // Handle digit keys (0-9)
     if (key >= '0' && key <= '9') {
-        if (pin_index < 4) {  // Only accept 4 digits
+        if (pin_index < PIN_LENGTH) {  // Only accept PIN_LENGTH digits
             pin_buffer[pin_index++] = key;
             pin_buffer[pin_index] = '\0';  // Null terminate
             
             // Log masked PIN (show asterisks for security)
             ESP_LOGI(TAG, "PIN entry: %.*s", pin_index, "****");
         } else {
-            ESP_LOGW(TAG, "PIN buffer full (4 digits max)");
+            ESP_LOGW(TAG, "PIN buffer full (%d digits max)", PIN_LENGTH);
         }
     }
     // Handle clear key (*)
@@ -150,11 +153,11 @@ static void handle_key_press(char key)
     }
     // Handle submit key (#)
     else if (key == '#') {
-        if (pin_index == 4) {
-            ESP_LOGI(TAG, "PIN submitted (4 digits)");
+        if (pin_index == PIN_LENGTH) {
+            ESP_LOGI(TAG, "PIN submitted (%d digits)", PIN_LENGTH);
             process_pin_entry(pin_buffer);
         } else if (pin_index > 0) {
-            ESP_LOGW(TAG, "PIN too short (%d digits, need 4)", pin_index);
+            ESP_LOGW(TAG, "PIN too short (%d digits, need %d)", pin_index, PIN_LENGTH);
         }
         // Clear buffer after submission attempt
         clear_pin_buffer();
