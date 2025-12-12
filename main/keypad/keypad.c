@@ -10,16 +10,16 @@ static const char *TAG = "KEYPAD";
 
 // GPIO pin definitions for 4x4 keypad
 // Rows: Outputs (driven low one at a time)
-#define ROW4_PIN GPIO_NUM_10
-#define ROW3_PIN GPIO_NUM_13
-#define ROW2_PIN GPIO_NUM_5
 #define ROW1_PIN GPIO_NUM_2
+#define ROW2_PIN GPIO_NUM_5
+#define ROW3_PIN GPIO_NUM_13
+#define ROW4_PIN GPIO_NUM_10
 
 // Columns: Inputs (with pull-ups)
-#define COL4_PIN GPIO_NUM_25
-#define COL3_PIN GPIO_NUM_26
-#define COL2_PIN GPIO_NUM_27
 #define COL1_PIN GPIO_NUM_9
+#define COL2_PIN GPIO_NUM_27
+#define COL3_PIN GPIO_NUM_26
+#define COL4_PIN GPIO_NUM_25
 
 // Array of row and column pins for easy iteration
 static const gpio_num_t row_pins[4] = {ROW1_PIN, ROW2_PIN, ROW3_PIN, ROW4_PIN};
