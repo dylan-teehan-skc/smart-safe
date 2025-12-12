@@ -242,7 +242,14 @@ static void publish_telemetry(event_t *event)
     ESP_LOGI(TAG, "Telemetry: %s", json_buffer);
 
     if (mqtt_connected && mqtt_client != NULL) {
-        esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_TELEMETRY, json_buffer, len, 1, 0);
+        int msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_TELEMETRY, json_buffer, len, 1, 0);
+        if (msg_id >= 0) {
+            ESP_LOGI(TAG, "Published to MQTT (msg_id=%d)", msg_id);
+        } else {
+            ESP_LOGE(TAG, "MQTT publish failed (error=%d)", msg_id);
+        }
+    } else {
+        ESP_LOGW(TAG, "MQTT not connected, telemetry not published");
     }
 }
 
