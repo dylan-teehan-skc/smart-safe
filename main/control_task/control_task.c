@@ -16,7 +16,9 @@
 static const char *TAG = "CTRL";
 
 // PIN configuration
-#define PIN_LENGTH 4  // Expected PIN length (4 digits)
+// Note: PIN_LENGTH is the expected PIN length for validation (4 digits)
+// MAX_PIN_LENGTH (defined in queue_manager.h) is the buffer size (8 bytes)
+#define PIN_LENGTH 4
 
 // Get current timestamp in seconds
 static uint32_t get_timestamp(void)
