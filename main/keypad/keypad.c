@@ -161,7 +161,6 @@ void keypad_init(void)
 char keypad_get_key(void)
 {
     uint8_t dummy;
-    static char last_key = '\0';
     static bool key_is_pressed = false;
     static TickType_t last_press_time = 0;
     
@@ -179,7 +178,6 @@ char keypad_get_key(void)
             if (!key_is_pressed) {
                 // First press of this key
                 key_is_pressed = true;
-                last_key = key;
                 last_press_time = xTaskGetTickCount();
                 return key;  // Return the key
             }
@@ -187,7 +185,6 @@ char keypad_get_key(void)
         } else {
             // No key detected or mismatch = key released
             key_is_pressed = false;
-            last_key = '\0';
         }
     } else {
         // Auto-reset if no activity for 500ms (safety fallback for stuck keys)
@@ -195,7 +192,6 @@ char keypad_get_key(void)
             TickType_t now = xTaskGetTickCount();
             if ((now - last_press_time) > pdMS_TO_TICKS(500)) {
                 key_is_pressed = false;
-                last_key = '\0';
             }
         }
     }
