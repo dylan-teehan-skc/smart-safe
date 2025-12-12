@@ -11,6 +11,7 @@
 #include "../json_protocol/json_protocol.h"
 #include "../config.h"
 #include "../mpu6050/mpu6050.h"
+#include "../keypad/keypad.h"
 
 static const char *TAG = "CTRL";
 
@@ -50,8 +51,10 @@ static void notify_movement(safe_state_machine_t *sm, float movement)
 
 static safe_state_machine_t safe_sm;
 
-// TODO: Uncomment when keypad integration is complete
-#if 0
+// PIN entry buffer
+static char pin_buffer[MAX_PIN_LENGTH] = {0};
+static int pin_index = 0;
+
 // Constant-time string comparison to prevent timing attacks
 static int constant_time_strcmp(const char *a, const char *b)
 {
@@ -81,6 +84,19 @@ static void process_pin_entry(const char *pin)
         } else if (new_state == STATE_LOCKED) {
             set_locked_led();
         }
+        
+        // Send code result event
+        event_t event = {
+            .type = EVT_CODE_RESULT,
+            .timestamp = get_timestamp(),
+            .state = safe_sm.current_state,
+            .movement_amount = 0.0f,
+            .code_ok = true
+        };
+        send_event(&event);
+        
+        // Notify state change
+        notify_state_change(&safe_sm);
     } else {
         ESP_LOGI(TAG, "Wrong PIN entered");
         safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_WRONG_PIN);
@@ -90,10 +106,64 @@ static void process_pin_entry(const char *pin)
 
         if (new_state == STATE_ALARM) {
             set_alarm_led_flashing();
+            notify_state_change(&safe_sm);
         }
+        
+        // Send code result event
+        event_t event = {
+            .type = EVT_CODE_RESULT,
+            .timestamp = get_timestamp(),
+            .state = safe_sm.current_state,
+            .movement_amount = 0.0f,
+            .code_ok = false
+        };
+        send_event(&event);
     }
 }
-#endif
+
+// Clear PIN buffer
+static void clear_pin_buffer(void)
+{
+    memset(pin_buffer, 0, sizeof(pin_buffer));
+    pin_index = 0;
+    ESP_LOGI(TAG, "PIN cleared");
+}
+
+// Handle individual key press
+static void handle_key_press(char key)
+{
+    // Handle digit keys (0-9)
+    if (key >= '0' && key <= '9') {
+        if (pin_index < 4) {  // Only accept 4 digits
+            pin_buffer[pin_index++] = key;
+            pin_buffer[pin_index] = '\0';  // Null terminate
+            
+            // Log masked PIN (show asterisks for security)
+            ESP_LOGI(TAG, "PIN entry: %.*s", pin_index, "****");
+        } else {
+            ESP_LOGW(TAG, "PIN buffer full (4 digits max)");
+        }
+    }
+    // Handle clear key (*)
+    else if (key == '*') {
+        clear_pin_buffer();
+    }
+    // Handle submit key (#)
+    else if (key == '#') {
+        if (pin_index == 4) {
+            ESP_LOGI(TAG, "PIN submitted (4 digits)");
+            process_pin_entry(pin_buffer);
+        } else if (pin_index > 0) {
+            ESP_LOGW(TAG, "PIN too short (%d digits, need 4)", pin_index);
+        }
+        // Clear buffer after submission attempt
+        clear_pin_buffer();
+    }
+    // Handle function keys (A-D) - reserved for future use
+    else if (key >= 'A' && key <= 'D') {
+        ESP_LOGI(TAG, "Function key '%c' pressed (not implemented)", key);
+    }
+}
 
 void control_task(void *pvParameters)
 {
@@ -115,8 +185,19 @@ void control_task(void *pvParameters)
 
     // Send initial state
     notify_state_change(&safe_sm);
+    
+    ESP_LOGI(TAG, "Ready for PIN entry:");
+    ESP_LOGI(TAG, "  - Press 0-9 to enter digits");
+    ESP_LOGI(TAG, "  - Press # to submit PIN");
+    ESP_LOGI(TAG, "  - Press * to clear");
 
     while (1) {
+        // Check for keypad input (non-blocking)
+        char key = keypad_get_key();
+        if (key != '\0') {
+            handle_key_press(key);
+        }
+        
         // Check for incoming commands (non-blocking)
         command_t cmd;
         if (receive_command(&cmd, 0)) {
@@ -192,8 +273,5 @@ void control_task(void *pvParameters)
 
         // Small delay to prevent busy-waiting
         vTaskDelay(pdMS_TO_TICKS(50));
-
-        // TODO: Keypad - use GPIO interrupt on column pins, ISR gives semaphore
-        // TODO: Handle auto-lock timeout using FreeRTOS software timer
     }
 }
