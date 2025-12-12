@@ -10,6 +10,37 @@
 
 static const char *TAG = "MAIN";
 
+void keypad_test_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "=== KEYPAD TEST MODE ===");
+    ESP_LOGI(TAG, "Press keys on the keypad to test.");
+    ESP_LOGI(TAG, "Each key press should be logged below.");
+    ESP_LOGI(TAG, "========================");
+    
+    while (1) {
+        // Non-blocking check for key press
+        char key = keypad_get_key();
+        
+        if (key != '\0') {
+            ESP_LOGI(TAG, "Key pressed: '%c'", key);
+            
+            // Optional: provide feedback for different key types
+            if (key >= '0' && key <= '9') {
+                ESP_LOGI(TAG, "  -> Digit key");
+            } else if (key == '*') {
+                ESP_LOGI(TAG, "  -> Clear key");
+            } else if (key == '#') {
+                ESP_LOGI(TAG, "  -> Submit key");
+            } else if (key >= 'A' && key <= 'D') {
+                ESP_LOGI(TAG, "  -> Function key");
+            }
+        }
+        
+        // Small delay to prevent busy-waiting
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "Smart Safe starting...");
@@ -32,6 +63,15 @@ void app_main(void)
     // Initialize keypad
     keypad_init();
 
+    // PHASE 1: Create simple keypad test task instead of full tasks
+    if (xTaskCreate(keypad_test_task, "keypad_test", 2048, NULL, 5, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create keypad test task");
+        return;
+    }
+    ESP_LOGI(TAG, "Keypad test task created");
+
+    // TEMPORARILY DISABLED: Comment out control and comm tasks for Phase 1 testing
+    /*
     // Create control task (high priority) - handles sensors, keypad, LEDs
     if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create control_task");
@@ -49,6 +89,7 @@ void app_main(void)
         return;
     }
     ESP_LOGI(TAG, "Comm task created (priority 3)");
+    */
 
-    ESP_LOGI(TAG, "Smart Safe initialized");
+    ESP_LOGI(TAG, "Smart Safe initialized - Keypad Test Mode");
 }
