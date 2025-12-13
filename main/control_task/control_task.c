@@ -212,7 +212,7 @@ void control_task(void *pvParameters)
     (void)pvParameters;
     ESP_LOGI(TAG, "\nControl task started");
 
-    // Create PIN mutex
+    // Create PIN mutex (doesnt need to be deleted as it lasts for task lifetime)
     pin_mutex = xSemaphoreCreateMutex();
     if (pin_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create PIN mutex");
