@@ -58,8 +58,10 @@ static SemaphoreHandle_t event_buffer_mutex = NULL;
 // Ring Buffer Functions
 // ============================================================================
 
-static void buffer_event(const event_t *event, int msg_id, bool pending)
+static int buffer_event(const event_t *event, int msg_id, bool pending)
 {
+    int buffered_index = -1;
+    
     if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
         if (event_buffer.count >= EVENT_BUFFER_SIZE) {
             ESP_LOGW(TAG, "Buffer full, overwriting oldest event");
@@ -69,10 +71,11 @@ static void buffer_event(const event_t *event, int msg_id, bool pending)
         }
 
         // Copy event to buffer with tracking info
-        memcpy(&event_buffer.events[event_buffer.head].event, event, sizeof(event_t));
-        event_buffer.events[event_buffer.head].msg_id = msg_id;
-        event_buffer.events[event_buffer.head].pending = pending;
-        event_buffer.events[event_buffer.head].timestamp = xTaskGetTickCount();
+        buffered_index = event_buffer.head;
+        memcpy(&event_buffer.events[buffered_index].event, event, sizeof(event_t));
+        event_buffer.events[buffered_index].msg_id = msg_id;
+        event_buffer.events[buffered_index].pending = pending;
+        event_buffer.events[buffered_index].timestamp = xTaskGetTickCount();
         event_buffer.head = (event_buffer.head + 1) % EVENT_BUFFER_SIZE;
         event_buffer.count++;
 
@@ -81,6 +84,8 @@ static void buffer_event(const event_t *event, int msg_id, bool pending)
         
         xSemaphoreGive(event_buffer_mutex);
     }
+    
+    return buffered_index;
 }
 
 static int find_next_non_pending_event(event_t *event)
@@ -165,54 +170,30 @@ static void check_pending_timeouts(void)
 {
     TickType_t current_ticks = xTaskGetTickCount();
     const TickType_t timeout_ticks = pdMS_TO_TICKS(10000); // 10 seconds
+    const TickType_t mutex_timeout = pdMS_TO_TICKS(100); // 100ms timeout to avoid blocking
     
-    if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
-        for (int i = 0; i < event_buffer.count; i++) {
+    // Structure to hold timed-out events for republishing
+    typedef struct {
+        event_t event;
+        int old_msg_id;
+    } timed_out_event_t;
+    
+    timed_out_event_t timed_out[EVENT_BUFFER_SIZE];
+    int timed_out_count = 0;
+    
+    // Phase 1: Collect all timed-out events while holding mutex (minimize hold time)
+    if (xSemaphoreTake(event_buffer_mutex, mutex_timeout) == pdTRUE) {
+        for (int i = 0; i < event_buffer.count && timed_out_count < EVENT_BUFFER_SIZE; i++) {
             int index = (event_buffer.tail + i) % EVENT_BUFFER_SIZE;
             buffered_event_t *buffered = &event_buffer.events[index];
             
             // Wrap-safe comparison: works correctly even when tick counter wraps around
             if (buffered->pending && (current_ticks - buffered->timestamp) >= timeout_ticks) {
                 if (mqtt_connected && mqtt_client != NULL) {
-                    // Copy event data while holding mutex
-                    event_t event_copy;
-                    memcpy(&event_copy, &buffered->event, sizeof(event_t));
-                    int old_msg_id = buffered->msg_id;
-                    
-                    // Release mutex before MQTT publish (can block)
-                    xSemaphoreGive(event_buffer_mutex);
-                    
-                    // Republish the event without holding mutex
-                    char json_buffer[JSON_BUFFER_SIZE];
-                    int len = event_to_json(&event_copy, json_buffer, JSON_BUFFER_SIZE);
-                    int msg_id = -1;
-                    
-                    if (len > 0) {
-                        msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_TELEMETRY, 
-                                                        json_buffer, len, 1, 0);
-                    }
-                    
-                    // Re-acquire mutex to update buffer state
-                    if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
-                        // Verify the event is still at the same index and still pending
-                        if (i < event_buffer.count) {
-                            buffered_event_t *recheck = &event_buffer.events[index];
-                            if (recheck->pending && recheck->msg_id == old_msg_id) {
-                                if (msg_id >= 0) {
-                                    ESP_LOGW(TAG, "Republishing timed-out event (old_msg_id=%d, new_msg_id=%d)", 
-                                            old_msg_id, msg_id);
-                                    recheck->msg_id = msg_id;
-                                    recheck->timestamp = current_ticks;
-                                } else {
-                                    ESP_LOGE(TAG, "Failed to republish timed-out event (msg_id=%d)", old_msg_id);
-                                    recheck->pending = false; // Mark as not pending to retry later
-                                }
-                            }
-                        }
-                        // Continue loop - don't release mutex yet
-                    } else {
-                        return; // Failed to re-acquire mutex
-                    }
+                    // Copy only essential data (fast operation)
+                    memcpy(&timed_out[timed_out_count].event, &buffered->event, sizeof(event_t));
+                    timed_out[timed_out_count].old_msg_id = buffered->msg_id;
+                    timed_out_count++;
                 } else {
                     // Not connected, mark as not pending so it can be flushed when reconnected
                     ESP_LOGW(TAG, "Marking timed-out event as not pending (msg_id=%d)", buffered->msg_id);
@@ -220,10 +201,67 @@ static void check_pending_timeouts(void)
                 }
             }
         }
-        
         xSemaphoreGive(event_buffer_mutex);
+    } else {
+        // Failed to acquire mutex, skip this check cycle
+        ESP_LOGV(TAG, "Skipping timeout check, mutex busy");
+        return;
+    }
+    
+    // Phase 2: Republish all timed-out events without holding mutex
+    if (timed_out_count == 0) {
+        return; // Nothing to republish
+    }
+    
+    // Prepare results for batch update
+    typedef struct {
+        int old_msg_id;
+        int new_msg_id;
+    } update_result_t;
+    
+    update_result_t results[EVENT_BUFFER_SIZE];
+    
+    for (int i = 0; i < timed_out_count; i++) {
+        char json_buffer[JSON_BUFFER_SIZE];
+        int len = event_to_json(&timed_out[i].event, json_buffer, JSON_BUFFER_SIZE);
+        
+        results[i].old_msg_id = timed_out[i].old_msg_id;
+        results[i].new_msg_id = -1;
+        
+        if (len > 0 && mqtt_connected && mqtt_client != NULL) {
+            results[i].new_msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_TELEMETRY, 
+                                                            json_buffer, len, 1, 0);
+        }
+    }
+    
+    // Phase 3: Batch update all results with single mutex acquisition
+    if (xSemaphoreTake(event_buffer_mutex, mutex_timeout) == pdTRUE) {
+        for (int i = 0; i < timed_out_count; i++) {
+            // Search by old_msg_id (robust to buffer modifications)
+            for (int j = 0; j < event_buffer.count; j++) {
+                int idx = (event_buffer.tail + j) % EVENT_BUFFER_SIZE;
+                buffered_event_t *buffered = &event_buffer.events[idx];
+                
+                if (buffered->pending && buffered->msg_id == results[i].old_msg_id) {
+                    if (results[i].new_msg_id >= 0) {
+                        ESP_LOGW(TAG, "Republishing timed-out event (old_msg_id=%d, new_msg_id=%d)", 
+                                results[i].old_msg_id, results[i].new_msg_id);
+                        buffered->msg_id = results[i].new_msg_id;
+                        buffered->timestamp = current_ticks;
+                    } else {
+                        ESP_LOGE(TAG, "Failed to republish timed-out event (msg_id=%d)", results[i].old_msg_id);
+                        buffered->pending = false; // Mark as not pending to retry later
+                    }
+                    break;
+                }
+            }
+        }
+        xSemaphoreGive(event_buffer_mutex);
+    } else {
+        ESP_LOGW(TAG, "Failed to update republished events, will retry next cycle");
     }
 }
+
 
 static void flush_buffered_events(void)
 {
@@ -506,7 +544,7 @@ static void publish_telemetry(event_t *event)
     ESP_LOGI(TAG, "Telemetry: %s", json_buffer);
 
     // buffer first to ensure zero data loss
-    buffer_event(event, -1, false);
+    int buffered_index = buffer_event(event, -1, false);
 
     // Then attempt to publish immediately if connected
     if (mqtt_connected && mqtt_client != NULL) {
@@ -515,12 +553,19 @@ static void publish_telemetry(event_t *event)
             ESP_LOGI(TAG, "Queued for MQTT (msg_id=%d)", msg_id);
             
             // Update the buffered event with msg_id and mark as pending
-            if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
-                // Find the just-buffered event
-                int last_index = (event_buffer.head - 1 + EVENT_BUFFER_SIZE) % EVENT_BUFFER_SIZE;
-                event_buffer.events[last_index].msg_id = msg_id;
-                event_buffer.events[last_index].pending = true;
-                event_buffer.events[last_index].timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if (buffered_index >= 0 && xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
+                // Verify the event at buffered_index hasn't been removed/modified
+                // by checking if it still has msg_id=-1 and pending=false (our signature)
+                if (event_buffer.events[buffered_index].msg_id == -1 && 
+                    !event_buffer.events[buffered_index].pending) {
+                    event_buffer.events[buffered_index].msg_id = msg_id;
+                    event_buffer.events[buffered_index].pending = true;
+                    event_buffer.events[buffered_index].timestamp = xTaskGetTickCount();
+                } else {
+                    ESP_LOGW(TAG, "Buffered event was modified before update, re-buffering with msg_id");
+                    // Event was modified/removed, add new one with correct state
+                    buffer_event(event, msg_id, true);
+                }
                 xSemaphoreGive(event_buffer_mutex);
             }
         } else {
@@ -573,8 +618,8 @@ void comm_task(void *pvParameters)
         return;
     }
 
-    uint32_t last_timeout_check = 0;
-    const uint32_t timeout_check_interval = 2000; // Check every 2 seconds
+    TickType_t last_timeout_check = xTaskGetTickCount();
+    const TickType_t timeout_check_interval = pdMS_TO_TICKS(2000); // Check every 2 seconds
     
     while (1) {
         event_t event;
@@ -582,11 +627,11 @@ void comm_task(void *pvParameters)
             publish_telemetry(&event);
         }
         
-        // Periodically check for timed-out pending events
-        uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        if (current_time - last_timeout_check > timeout_check_interval) {
+        // Periodically check for timed-out pending events (wrap-safe comparison)
+        TickType_t current_ticks = xTaskGetTickCount();
+        if ((current_ticks - last_timeout_check) >= timeout_check_interval) {
             check_pending_timeouts();
-            last_timeout_check = current_time;
+            last_timeout_check = current_ticks;
         }
     }
 
