@@ -18,20 +18,8 @@ static const char *TAG = "CTRL";
 // PIN configuration
 // Note: PIN_LENGTH is the expected PIN length for validation (4 digits)
 // MAX_PIN_LENGTH (defined in queue_manager.h) is the buffer size (8 bytes)
-static char current_pin[MAX_PIN_LENGTH] = CORRECT_PIN;
-static SemaphoreHandle_t pin_mutex = NULL;
 #define PIN_LENGTH 4
 
-// Initialize the pin mutex before any concurrent access
-void control_task_init(void)
-{
-    if (pin_mutex == NULL) {
-        pin_mutex = xSemaphoreCreateMutex();
-        if (pin_mutex == NULL) {
-            ESP_LOGE(TAG, "Failed to create pin_mutex!");
-        }
-    }
-}
 // Get current timestamp in seconds
 static uint32_t get_timestamp(void)
 {
@@ -89,19 +77,9 @@ static int constant_time_strcmp(const char *a, const char *b)
 
 static void process_pin_entry(const char *pin)
 {
-    // Copy current PIN under mutex protection
-    char pin_copy[MAX_PIN_LENGTH];
-    if (xSemaphoreTake(pin_mutex, portMAX_DELAY) == pdTRUE) {
-        strncpy(pin_copy, current_pin, MAX_PIN_LENGTH);
-        xSemaphoreGive(pin_mutex);
-    } else {
-        ESP_LOGE(TAG, "Failed to acquire PIN mutex");
-        return;
-    }
-    
     // Use constant-time comparison to prevent timing attacks
     // Do not print the PIN to avoid exposing it in logs
-    if (constant_time_strcmp(pin, pin_copy) == 0) {
+    if (constant_time_strcmp(pin, CORRECT_PIN) == 0) {
         ESP_LOGI(TAG, "Correct PIN entered");
         safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_CORRECT_PIN);
         ESP_LOGI(TAG, "State: %s", state_to_string(new_state));
@@ -222,14 +200,6 @@ void control_task(void *pvParameters)
     (void)pvParameters;
     ESP_LOGI(TAG, "\nControl task started");
 
-    // Create PIN mutex
-    pin_mutex = xSemaphoreCreateMutex();
-    if (pin_mutex == NULL) {
-        ESP_LOGE(TAG, "Failed to create PIN mutex");
-        vTaskDelete(NULL);
-        return;
-    }
-
     // Initialize LEDs
     leds_init();
     set_locked_led();
@@ -283,59 +253,17 @@ void control_task(void *pvParameters)
                     break;
 
                 case CMD_SET_CODE:
-                    ESP_LOGI(TAG, "Received SET_CODE command");
-                    // Validate new PIN
+                    ESP_LOGI(TAG, "Received SET_CODE command: %s", cmd.code);
+                    // TODO: Store new code in NVS
                     {
-                        size_t code_len = strlen(cmd.code);
-                        bool valid = (code_len == PIN_LENGTH);
-                        
-                        // Check if all characters are digits
-                        if (valid) {
-                            for (size_t i = 0; i < code_len; i++) {
-                                if (cmd.code[i] < '0' || cmd.code[i] > '9') {
-                                    valid = false;
-                                    ESP_LOGW(TAG, "Invalid PIN: contains non-digit characters");
-                                    break;
-                                }
-                            }
-                        } else {
-                            ESP_LOGW(TAG, "Invalid PIN: must be %d digits, got %zu", PIN_LENGTH, code_len);
-                        }
-                        
-                        if (valid) {
-                            // Update PIN in memory (mutex protected)
-                            if (xSemaphoreTake(pin_mutex, portMAX_DELAY) == pdTRUE) {
-                                strncpy(current_pin, cmd.code, MAX_PIN_LENGTH - 1);
-                                current_pin[MAX_PIN_LENGTH - 1] = '\0';
-                                xSemaphoreGive(pin_mutex);
-                                ESP_LOGI(TAG, "PIN code updated successfully");
-                            } else {
-                                ESP_LOGE(TAG, "Failed to acquire PIN mutex for update");
-                                valid = false;
-                            }
-                            
-                            // TODO: Store new code in NVS for persistence (Phase 7)
-                            
-                            // Send confirmation event
-                            event_t event = {
-                                .type = EVT_CODE_CHANGED,
-                                .timestamp = get_timestamp(),
-                                .state = safe_sm.current_state,
-                                .movement_amount = 0.0f,
-                                .code_ok = true
-                            };
-                            send_event(&event);
-                        } else {
-                            // Send failure event
-                            event_t event = {
-                                .type = EVT_CODE_CHANGED,
-                                .timestamp = get_timestamp(),
-                                .state = safe_sm.current_state,
-                                .movement_amount = 0.0f,
-                                .code_ok = false
-                            };
-                            send_event(&event);
-                        }
+                        event_t event = {
+                            .type = EVT_CODE_CHANGED,
+                            .timestamp = get_timestamp(),
+                            .state = safe_sm.current_state,
+                            .movement_amount = 0.0f,
+                            .code_ok = true
+                        };
+                        send_event(&event);
                     }
                     break;
 
