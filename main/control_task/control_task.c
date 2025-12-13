@@ -22,6 +22,16 @@ static char current_pin[MAX_PIN_LENGTH] = CORRECT_PIN;
 static SemaphoreHandle_t pin_mutex = NULL;
 #define PIN_LENGTH 4
 
+// Initialize the pin mutex before any concurrent access
+void control_task_init(void)
+{
+    if (pin_mutex == NULL) {
+        pin_mutex = xSemaphoreCreateMutex();
+        if (pin_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create pin_mutex!");
+        }
+    }
+}
 // Get current timestamp in seconds
 static uint32_t get_timestamp(void)
 {
@@ -289,7 +299,7 @@ void control_task(void *pvParameters)
                                 }
                             }
                         } else {
-                            ESP_LOGW(TAG, "Invalid PIN: must be %d digits, got %d", PIN_LENGTH, code_len);
+                            ESP_LOGW(TAG, "Invalid PIN: must be %d digits, got %zu", PIN_LENGTH, code_len);
                         }
                         
                         if (valid) {
