@@ -146,14 +146,9 @@ static void mark_event_delivered(int msg_id)
                     // Event is at head - just move head back (O(1))
                     event_buffer.head = (event_buffer.head - 1 + EVENT_BUFFER_SIZE) % EVENT_BUFFER_SIZE;
                 } else {
-                    // Event is in the middle - shift forward from tail to fill gap (O(i))
-                    // This preserves FIFO order and only shifts elements before the removed one
-                    for (int j = i; j > 0; j--) {
-                        int src = (event_buffer.tail + j - 1) % EVENT_BUFFER_SIZE;
-                        int dst = (event_buffer.tail + j) % EVENT_BUFFER_SIZE;
-                        event_buffer.events[dst] = event_buffer.events[src];
-                    }
-                    event_buffer.tail = (event_buffer.tail + 1) % EVENT_BUFFER_SIZE;
+                    // Event is in the middle - mark as not pending (invalid) instead of shifting
+                    event_buffer.events[index].pending = false;
+                    // Note: The count is decremented below, and processing code should skip non-pending events.
                 }
                 
                 event_buffer.count--;
