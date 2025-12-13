@@ -474,10 +474,10 @@ static void publish_telemetry(event_t *event)
 
     ESP_LOGI(TAG, "Telemetry: %s", json_buffer);
 
-    // ALWAYS buffer first to ensure zero data loss
+    // buffer first to ensure zero data loss
     buffer_event(event, -1, false);
 
-    // Then attempt to publish immediately (real-time requirement)
+    // Then attempt to publish immediately if connected
     if (mqtt_connected && mqtt_client != NULL) {
         int msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_TELEMETRY, json_buffer, len, 1, 0);
         if (msg_id >= 0) {
@@ -485,7 +485,7 @@ static void publish_telemetry(event_t *event)
             
             // Update the buffered event with msg_id and mark as pending
             if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
-                // Find the just-buffered event (should be at head-1)
+                // Find the just-buffered event
                 int last_index = (event_buffer.head - 1 + EVENT_BUFFER_SIZE) % EVENT_BUFFER_SIZE;
                 event_buffer.events[last_index].msg_id = msg_id;
                 event_buffer.events[last_index].pending = true;
