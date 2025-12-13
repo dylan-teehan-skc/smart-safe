@@ -456,7 +456,7 @@ static bool mqtt_init(void)
             .timeout_ms = 5000,
         },
         .session = {
-            .keepalive = 5,  // Detect disconnects in 5 seconds
+            .keepalive = 60,  // Standard keepalive (60 seconds)
         },
     };
 
