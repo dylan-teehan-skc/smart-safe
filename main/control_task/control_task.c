@@ -289,7 +289,7 @@ void control_task(void *pvParameters)
                                 }
                             }
                         } else {
-                            ESP_LOGW(TAG, "Invalid PIN: must be %d digits, got %d", PIN_LENGTH, code_len);
+                            ESP_LOGW(TAG, "Invalid PIN: must be %d digits, got %zu", PIN_LENGTH, code_len);
                         }
                         
                         if (valid) {
