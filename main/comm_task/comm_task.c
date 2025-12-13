@@ -20,7 +20,7 @@ static EventGroupHandle_t wifi_event_group = NULL;
 
 // MQTT client
 static esp_mqtt_client_handle_t mqtt_client = NULL;
-static bool mqtt_connected = false;
+static volatile bool mqtt_connected = false;
 
 // Track initialization state
 static bool netif_initialized = false;
@@ -32,7 +32,14 @@ static bool netif_initialized = false;
 #define EVENT_BUFFER_SIZE 10
 
 typedef struct {
-    event_t events[EVENT_BUFFER_SIZE];
+    event_t event;
+    int msg_id;        // MQTT message ID for tracking delivery
+    bool pending;      // true if published but not confirmed
+    uint32_t timestamp; // Time when published (for timeout detection)
+} buffered_event_t;
+
+typedef struct {
+    buffered_event_t events[EVENT_BUFFER_SIZE];
     int head;   // Next write position
     int tail;   // Next read position
     int count;  // Number of events in buffer
@@ -51,7 +58,7 @@ static SemaphoreHandle_t event_buffer_mutex = NULL;
 // Ring Buffer Functions
 // ============================================================================
 
-static void buffer_event(const event_t *event)
+static void buffer_event(const event_t *event, int msg_id, bool pending)
 {
     if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
         if (event_buffer.count >= EVENT_BUFFER_SIZE) {
@@ -61,28 +68,47 @@ static void buffer_event(const event_t *event)
             event_buffer.count--;
         }
 
-        // Copy event to buffer
-        memcpy(&event_buffer.events[event_buffer.head], event, sizeof(event_t));
+        // Copy event to buffer with tracking info
+        memcpy(&event_buffer.events[event_buffer.head].event, event, sizeof(event_t));
+        event_buffer.events[event_buffer.head].msg_id = msg_id;
+        event_buffer.events[event_buffer.head].pending = pending;
+        event_buffer.events[event_buffer.head].timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
         event_buffer.head = (event_buffer.head + 1) % EVENT_BUFFER_SIZE;
         event_buffer.count++;
 
-        ESP_LOGI(TAG, "Event buffered (buffer: %d/%d)", event_buffer.count, EVENT_BUFFER_SIZE);
+        ESP_LOGI(TAG, "Event buffered (buffer: %d/%d, msg_id=%d, pending=%d)", 
+                 event_buffer.count, EVENT_BUFFER_SIZE, msg_id, pending);
         
         xSemaphoreGive(event_buffer_mutex);
     }
 }
 
-static bool get_buffered_event(event_t *event)
+static bool get_buffered_event(event_t *event, bool *was_pending)
 {
     bool result = false;
     
     if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
-        if (event_buffer.count > 0) {
-            // Copy event from buffer
-            memcpy(event, &event_buffer.events[event_buffer.tail], sizeof(event_t));
-            event_buffer.tail = (event_buffer.tail + 1) % EVENT_BUFFER_SIZE;
-            event_buffer.count--;
-            result = true;
+        // Find first non-pending event
+        for (int i = 0; i < event_buffer.count; i++) {
+            int index = (event_buffer.tail + i) % EVENT_BUFFER_SIZE;
+            if (!event_buffer.events[index].pending) {
+                // Copy event from buffer
+                memcpy(event, &event_buffer.events[index].event, sizeof(event_t));
+                if (was_pending) {
+                    *was_pending = false;
+                }
+                
+                // Remove from buffer by shifting subsequent events
+                for (int j = i; j < event_buffer.count - 1; j++) {
+                    int src = (event_buffer.tail + j + 1) % EVENT_BUFFER_SIZE;
+                    int dst = (event_buffer.tail + j) % EVENT_BUFFER_SIZE;
+                    event_buffer.events[dst] = event_buffer.events[src];
+                }
+                event_buffer.head = (event_buffer.head - 1 + EVENT_BUFFER_SIZE) % EVENT_BUFFER_SIZE;
+                event_buffer.count--;
+                result = true;
+                break;
+            }
         }
         
         xSemaphoreGive(event_buffer_mutex);
@@ -103,6 +129,74 @@ static bool has_buffered_events(void)
     return has_events;
 }
 
+static void mark_event_delivered(int msg_id)
+{
+    if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
+        // Search buffer for matching msg_id
+        for (int i = 0; i < event_buffer.count; i++) {
+            int index = (event_buffer.tail + i) % EVENT_BUFFER_SIZE;
+            if (event_buffer.events[index].msg_id == msg_id && event_buffer.events[index].pending) {
+                ESP_LOGI(TAG, "Marking event as delivered (msg_id=%d)", msg_id);
+                
+                // Remove from buffer by shifting subsequent events
+                for (int j = i; j < event_buffer.count - 1; j++) {
+                    int src = (event_buffer.tail + j + 1) % EVENT_BUFFER_SIZE;
+                    int dst = (event_buffer.tail + j) % EVENT_BUFFER_SIZE;
+                    event_buffer.events[dst] = event_buffer.events[src];
+                }
+                event_buffer.head = (event_buffer.head - 1 + EVENT_BUFFER_SIZE) % EVENT_BUFFER_SIZE;
+                event_buffer.count--;
+                
+                ESP_LOGI(TAG, "Event removed from buffer (remaining: %d)", event_buffer.count);
+                break;
+            }
+        }
+        
+        xSemaphoreGive(event_buffer_mutex);
+    }
+}
+
+static void check_pending_timeouts(void)
+{
+    uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    const uint32_t timeout_ms = 10000; // 10 seconds
+    
+    if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
+        for (int i = 0; i < event_buffer.count; i++) {
+            int index = (event_buffer.tail + i) % EVENT_BUFFER_SIZE;
+            buffered_event_t *buffered = &event_buffer.events[index];
+            
+            if (buffered->pending && (current_time - buffered->timestamp) > timeout_ms) {
+                if (mqtt_connected && mqtt_client != NULL) {
+                    // Republish the event
+                    char json_buffer[JSON_BUFFER_SIZE];
+                    int len = event_to_json(&buffered->event, json_buffer, JSON_BUFFER_SIZE);
+                    
+                    if (len > 0) {
+                        int msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_TELEMETRY, 
+                                                            json_buffer, len, 1, 0);
+                        if (msg_id >= 0) {
+                            ESP_LOGW(TAG, "Republishing timed-out event (old_msg_id=%d, new_msg_id=%d)", 
+                                    buffered->msg_id, msg_id);
+                            buffered->msg_id = msg_id;
+                            buffered->timestamp = current_time;
+                        } else {
+                            ESP_LOGE(TAG, "Failed to republish timed-out event (msg_id=%d)", buffered->msg_id);
+                            buffered->pending = false; // Mark as not pending to retry later
+                        }
+                    }
+                } else {
+                    // Not connected, mark as not pending so it can be flushed when reconnected
+                    ESP_LOGW(TAG, "Marking timed-out event as not pending (msg_id=%d)", buffered->msg_id);
+                    buffered->pending = false;
+                }
+            }
+        }
+        
+        xSemaphoreGive(event_buffer_mutex);
+    }
+}
+
 static void flush_buffered_events(void)
 {
     if (!has_buffered_events()) {
@@ -112,23 +206,27 @@ static void flush_buffered_events(void)
     ESP_LOGI(TAG, "Flushing buffered events");
 
     event_t event;
-    while (get_buffered_event(&event)) {
+    bool was_pending;
+    while (get_buffered_event(&event, &was_pending)) {
         char json_buffer[JSON_BUFFER_SIZE];
         int len = event_to_json(&event, json_buffer, JSON_BUFFER_SIZE);
 
         if (len > 0 && mqtt_connected && mqtt_client != NULL) {
             int msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_TELEMETRY, json_buffer, len, 1, 0);
             if (msg_id >= 0) {
-                ESP_LOGI(TAG, "Published buffered event (%d remaining)", event_buffer.count);
+                ESP_LOGI(TAG, "Queued buffered event (msg_id=%d, %d remaining)", msg_id, event_buffer.count);
+                // Re-buffer as pending to track delivery
+                buffer_event(&event, msg_id, true);
             } else {
-                ESP_LOGE(TAG, "Failed to publish buffered event (error=%d)", msg_id);
+                ESP_LOGE(TAG, "Failed to queue buffered event (error=%d), re-buffering", msg_id);
                 // Re-buffer the event if publish failed
-                buffer_event(&event);
+                buffer_event(&event, -1, false);
                 break;
             }
         } else {
-            // Re-buffer the event if conditions changed
-            buffer_event(&event);
+            // Re-buffer the event if conditions changed (disconnected during flush)
+            ESP_LOGW(TAG, "MQTT disconnected during flush, re-buffering remaining events");
+            buffer_event(&event, -1, false);
             break;
         }
 
@@ -289,8 +387,20 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
             }
             break;
 
+        case MQTT_EVENT_PUBLISHED:
+            ESP_LOGI(TAG, "Message delivered to broker (msg_id=%d)", event->msg_id);
+            mark_event_delivered(event->msg_id);
+            break;
+
         case MQTT_EVENT_ERROR:
-            ESP_LOGE(TAG, "MQTT error");
+            ESP_LOGE(TAG, "MQTT error occurred");
+            if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+                ESP_LOGE(TAG, "TCP transport error: %d", event->error_handle->esp_transport_sock_errno);
+            } else if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+                ESP_LOGE(TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
+            }
+            // Mark as disconnected to trigger buffering
+            mqtt_connected = false;
             break;
 
         default:
@@ -305,6 +415,12 @@ static bool mqtt_init(void)
             .address = {
                 .uri = MQTT_BROKER_URI,
             },
+        },
+        .network = {
+            .timeout_ms = 5000,
+        },
+        .session = {
+            .keepalive = 5,  // Detect disconnects in 5 seconds
         },
     };
 
@@ -358,16 +474,29 @@ static void publish_telemetry(event_t *event)
 
     ESP_LOGI(TAG, "Telemetry: %s", json_buffer);
 
+    // ALWAYS buffer first to ensure zero data loss
+    buffer_event(event, -1, false);
+
+    // Then attempt to publish immediately (real-time requirement)
     if (mqtt_connected && mqtt_client != NULL) {
         int msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_TELEMETRY, json_buffer, len, 1, 0);
         if (msg_id >= 0) {
-            ESP_LOGI(TAG, "Published to MQTT (msg_id=%d)", msg_id);
+            ESP_LOGI(TAG, "Queued for MQTT (msg_id=%d)", msg_id);
+            
+            // Update the buffered event with msg_id and mark as pending
+            if (xSemaphoreTake(event_buffer_mutex, portMAX_DELAY) == pdTRUE) {
+                // Find the just-buffered event (should be at head-1)
+                int last_index = (event_buffer.head - 1 + EVENT_BUFFER_SIZE) % EVENT_BUFFER_SIZE;
+                event_buffer.events[last_index].msg_id = msg_id;
+                event_buffer.events[last_index].pending = true;
+                event_buffer.events[last_index].timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                xSemaphoreGive(event_buffer_mutex);
+            }
         } else {
-            ESP_LOGE(TAG, "MQTT publish failed (error=%d)", msg_id);
+            ESP_LOGE(TAG, "MQTT publish failed (error=%d), event already buffered", msg_id);
         }
     } else {
-        ESP_LOGW(TAG, "MQTT not connected, buffering event");
-        buffer_event(event);
+        ESP_LOGW(TAG, "MQTT not connected, event buffered for later");
     }
 }
 
@@ -413,10 +542,20 @@ void comm_task(void *pvParameters)
         return;
     }
 
+    uint32_t last_timeout_check = 0;
+    const uint32_t timeout_check_interval = 2000; // Check every 2 seconds
+    
     while (1) {
         event_t event;
         if (receive_event(&event, 1000)) {
             publish_telemetry(&event);
+        }
+        
+        // Periodically check for timed-out pending events
+        uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        if (current_time - last_timeout_check > timeout_check_interval) {
+            check_pending_timeouts();
+            last_timeout_check = current_time;
         }
     }
 
