@@ -71,13 +71,6 @@ void app_main(void)
     ESP_LOGI(TAG, "Initializing I2C bus...");
     ESP_ERROR_CHECK(i2c_master_init());
 
-    // Create control task (high priority) - handles sensors, keypad, LEDs
-    if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create control_task");
-        return;
-    }
-    ESP_LOGI(TAG, "Control task created (priority 5)");
-    
     // Initialize LCD display (state machine will update it when ready)
     ESP_LOGI(TAG, "Initializing LCD display...");
     if (lcd_display_init()) {
@@ -85,6 +78,14 @@ void app_main(void)
     } else {
         ESP_LOGE(TAG, "Failed to initialize LCD display");
     }
+    
+    // Create control task (high priority) - handles sensors, keypad, LEDs
+    if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create control_task");
+        return;
+    }
+    ESP_LOGI(TAG, "Control task created (priority 5)");
+    
 
     // Create comm task (lower priority) - handles WiFi, MQTT
     // NOTE: The comm_task stack size is set to 8192 bytes (double control_task's 4096)
