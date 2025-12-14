@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "../queue_manager/queue_manager.h"
+#include "../json_protocol/json_protocol.h"
 
 static const char *TAG = "EVT_PUB";
 
