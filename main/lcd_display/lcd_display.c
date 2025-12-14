@@ -203,3 +203,35 @@ void lcd_display_show_state(safe_state_t state)
             break;
     }
 }
+
+void lcd_display_show_pin_entry(int length)
+{
+    if (length < 0 || length > 4) {
+        ESP_LOGW(TAG, "Invalid PIN length: %d", length);
+        return;
+    }
+    
+    char pin_display[17] = "PIN: ";
+    
+    // Add asterisks for each digit entered
+    for (int i = 0; i < length; i++) {
+        pin_display[5 + i] = '*';
+    }
+    pin_display[5 + length] = '\0';
+    
+    // Write to row 1 only (keep status on row 0)
+    lcd_display_write(pin_display, 1);
+    ESP_LOGI(TAG, "PIN entry: %d digits", length);
+}
+
+void lcd_display_clear_pin_entry(void)
+{
+    lcd_display_write("Ready", 1);
+    ESP_LOGI(TAG, "PIN entry cleared");
+}
+
+void lcd_display_show_checking(void)
+{
+    lcd_display_write("Checking...", 1);
+    ESP_LOGI(TAG, "Showing checking message");
+}

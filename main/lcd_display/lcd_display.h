@@ -44,4 +44,20 @@ void lcd_display_set_backlight_rgb(uint8_t r, uint8_t g, uint8_t b);
  */
 void lcd_display_show_state(safe_state_t state);
 
+/**
+ * @brief Display PIN entry with masked asterisks
+ * @param length Number of digits entered (0-4)
+ */
+void lcd_display_show_pin_entry(int length);
+
+/**
+ * @brief Clear PIN entry line
+ */
+void lcd_display_clear_pin_entry(void);
+
+/**
+ * @brief Show "Checking..." message during PIN verification
+ */
+void lcd_display_show_checking(void);
+
 #endif // LCD_DISPLAY_H
