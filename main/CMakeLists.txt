@@ -10,5 +10,6 @@ idf_component_register(SRCS "main.c"
                             "pin_manager/pin_manager.c"
                             "event_publisher/event_publisher.c"
                             "command_handler/command_handler.c"
-                       INCLUDE_DIRS "." "keypad" "pin_manager" "event_publisher" "command_handler"
+                            "lcd_display/lcd_display.c"
+                       INCLUDE_DIRS "." "keypad" "pin_manager" "event_publisher" "command_handler" "lcd_display"
                        )

@@ -1,0 +1,39 @@
+#ifndef LCD_DISPLAY_H
+#define LCD_DISPLAY_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// LCD controller I2C address (HD44780-compatible display)
+#define LCD_CONTROLLER_ADDR 0x3E
+
+// RGB backlight controller I2C address (separate chip)
+#define LCD_BACKLIGHT_ADDR 0x60
+
+/**
+ * @brief Initialize the LCD display
+ * @return true if successful, false otherwise
+ */
+bool lcd_display_init(void);
+
+/**
+ * @brief Clear the LCD display
+ */
+void lcd_display_clear(void);
+
+/**
+ * @brief Write text to a specific row
+ * @param text String to display (max 16 characters)
+ * @param row Row number (0 or 1)
+ */
+void lcd_display_write(const char *text, uint8_t row);
+
+/**
+ * @brief Set RGB backlight color
+ * @param r Red intensity (0-255)
+ * @param g Green intensity (0-255)
+ * @param b Blue intensity (0-255)
+ */
+void lcd_display_set_backlight_rgb(uint8_t r, uint8_t g, uint8_t b);
+
+#endif // LCD_DISPLAY_H
