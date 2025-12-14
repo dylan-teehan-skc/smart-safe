@@ -143,19 +143,21 @@ void lcd_display_write(const char *text, uint8_t row)
     uint8_t row_addr = (row == 0) ? 0x00 : 0x40;
     lcd_send_command(LCD_CMD_SET_DDRAM_ADDR | row_addr);
     
-    // Small delay after cursor positioning
-    vTaskDelay(pdMS_TO_TICKS(5));
+    // Longer delay after cursor positioning to ensure it's processed
+    vTaskDelay(pdMS_TO_TICKS(10));
     
-    // Write up to 16 characters
+    // Write up to 16 characters with small delays between each
     for (int i = 0; i < 16; i++) {
         if (text[i] == '\0') {
             // Pad remaining space with spaces
             for (int j = i; j < 16; j++) {
                 lcd_send_data_byte(' ');
+                vTaskDelay(pdMS_TO_TICKS(1));  // Small delay between characters
             }
             break;
         }
         lcd_send_data_byte(text[i]);
+        vTaskDelay(pdMS_TO_TICKS(1));  // Small delay between characters
     }
 }
 
