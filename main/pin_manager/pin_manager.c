@@ -175,26 +175,38 @@ bool pin_manager_set(const char *new_pin)
         return false;
     }
 
-    // Save to NVS first
-    // either both NVS and RAM succeed, or neither
-    if (!save_pin_to_nvs(new_pin)) {
-        ESP_LOGE(TAG, "Failed to save PIN to NVS");
+    char old_pin[MAX_PIN_LENGTH];
+    
+    // Acquire mutex first to read old PIN for potential rollback
+    if (xSemaphoreTake(pin_mutex, portMAX_DELAY) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire PIN mutex");
         return false;
     }
     
-    // Only update RAM if NVS save succeeded
-    if (xSemaphoreTake(pin_mutex, portMAX_DELAY) == pdTRUE) {
-        strncpy(current_pin, new_pin, MAX_PIN_LENGTH - 1);
-        current_pin[MAX_PIN_LENGTH - 1] = '\0';
-        xSemaphoreGive(pin_mutex);
+    // Backup old PIN while we have mutex
+    strncpy(old_pin, current_pin, MAX_PIN_LENGTH);
+    
+    // Update RAM first
+    strncpy(current_pin, new_pin, MAX_PIN_LENGTH - 1);
+    current_pin[MAX_PIN_LENGTH - 1] = '\0';
+    
+    // Release mutex before slow NVS operation
+    xSemaphoreGive(pin_mutex);
+    
+    // Save to NVS (this can take tens of milliseconds)
+    if (!save_pin_to_nvs(new_pin)) {
+        ESP_LOGE(TAG, "Failed to save PIN to NVS, rolling back RAM");
         
-        ESP_LOGI(TAG, "PIN updated in RAM and NVS");
-        return true;
-    } else {
-        ESP_LOGE(TAG, "Failed to acquire PIN mutex after NVS save");
-        // NVS has new PIN but RAM still has old - will sync on next boot
+        // Rollback RAM to old PIN
+        if (xSemaphoreTake(pin_mutex, portMAX_DELAY) == pdTRUE) {
+            strncpy(current_pin, old_pin, MAX_PIN_LENGTH);
+            xSemaphoreGive(pin_mutex);
+        }
         return false;
     }
+    
+    ESP_LOGI(TAG, "PIN updated in RAM and NVS");
+    return true;
 }
 
 void pin_manager_cleanup(void)
