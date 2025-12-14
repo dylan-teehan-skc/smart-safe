@@ -112,6 +112,9 @@ bool pin_manager_init(const char *default_pin)
             ESP_LOGW(TAG, "Stored PIN invalid, using default");
             strncpy(current_pin, default_pin, MAX_PIN_LENGTH - 1);
             current_pin[MAX_PIN_LENGTH - 1] = '\0';
+            
+            // Overwrite invalid PIN in NVS with default
+            save_pin_to_nvs(current_pin);
         }
     } else {
         // No stored PIN, use default and save it
