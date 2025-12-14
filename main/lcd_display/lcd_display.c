@@ -51,7 +51,7 @@ static esp_err_t lcd_send_command(uint8_t cmd)
     i2c_cmd_handle_t i2c_cmd = i2c_cmd_link_create();
     i2c_master_start(i2c_cmd);
     i2c_master_write_byte(i2c_cmd, (LCD_CONTROLLER_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(i2c_cmd, 0x80, true);  // Control byte: Co=1, RS=0 (command)
+    i2c_master_write_byte(i2c_cmd, 0x00, true);  // Control byte: Co=0, RS=0 (command)
     i2c_master_write_byte(i2c_cmd, cmd, true);
     i2c_master_stop(i2c_cmd);
     esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, i2c_cmd, pdMS_TO_TICKS(1000));
@@ -143,6 +143,9 @@ void lcd_display_write(const char *text, uint8_t row)
     uint8_t row_addr = (row == 0) ? 0x00 : 0x40;
     lcd_send_command(LCD_CMD_SET_DDRAM_ADDR | row_addr);
     
+    // Small delay after cursor positioning
+    vTaskDelay(pdMS_TO_TICKS(5));
+    
     // Write up to 16 characters
     for (int i = 0; i < 16; i++) {
         if (text[i] == '\0') {
@@ -163,4 +166,38 @@ void lcd_display_set_backlight_rgb(uint8_t r, uint8_t g, uint8_t b)
     rgb_write_register(RGB_PWM_RED, r);
     rgb_write_register(RGB_PWM_GREEN, g);
     rgb_write_register(RGB_PWM_BLUE, b);
+}
+
+void lcd_display_show_state(safe_state_t state)
+{
+    lcd_display_clear();
+    
+    switch (state) {
+        case STATE_LOCKED:
+            lcd_display_write("Status: LOCKED", 0);
+            lcd_display_write("Ready", 1);
+            lcd_display_set_backlight_rgb(255, 0, 0);  // Red
+            ESP_LOGI(TAG, "Displaying LOCKED state");
+            break;
+            
+        case STATE_UNLOCKED:
+            lcd_display_write("Status: UNLOCKED", 0);
+            lcd_display_write("Access Granted", 1);
+            lcd_display_set_backlight_rgb(0, 255, 0);  // Green
+            ESP_LOGI(TAG, "Displaying UNLOCKED state");
+            break;
+            
+        case STATE_ALARM:
+            lcd_display_write("!! ALARM !!", 0);
+            lcd_display_write("Tamper Detected", 1);
+            lcd_display_set_backlight_rgb(255, 0, 0);  // Red
+            ESP_LOGI(TAG, "Displaying ALARM state");
+            break;
+            
+        default:
+            lcd_display_write("Status: UNKNOWN", 0);
+            lcd_display_set_backlight_rgb(255, 255, 0);  // Yellow
+            ESP_LOGE(TAG, "Unknown state: %d", state);
+            break;
+    }
 }

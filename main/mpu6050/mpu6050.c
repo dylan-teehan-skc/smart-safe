@@ -20,23 +20,6 @@ static const char *TAG = "MPU6050";
 static bool initialized = false;
 static int movement_hit_count = 0;
 
-static esp_err_t i2c_init(void)
-{
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = MPU6050_SDA_PIN,
-        .scl_io_num = MPU6050_SCL_PIN,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_FREQ_HZ,
-    };
-
-    esp_err_t err = i2c_param_config(I2C_PORT, &conf);
-    if (err != ESP_OK) return err;
-
-    return i2c_driver_install(I2C_PORT, conf.mode, 0, 0, 0);
-}
-
 static esp_err_t mpu6050_write_reg(uint8_t reg_addr, uint8_t data)
 {
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -78,12 +61,7 @@ bool mpu6050_init(void)
 
     ESP_LOGI(TAG, "Initializing MPU6050...");
 
-    // Initialize I2C
-    esp_err_t err = i2c_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2C init failed: %s", esp_err_to_name(err));
-        return false;
-    }
+    // I2C bus is already initialized in main.c
     ESP_LOGI(TAG, "I2C initialized (SDA=%d, SCL=%d)", MPU6050_SDA_PIN, MPU6050_SCL_PIN);
 
     // Wake up MPU6050 (clear sleep bit)

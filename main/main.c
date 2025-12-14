@@ -12,43 +12,37 @@
 
 static const char *TAG = "MAIN";
 
-// I2C scanner function for LCD detection
-static void i2c_scanner(void)
+// I2C configuration (shared by MPU6050 and LCD)
+#define I2C_MASTER_SCL_IO           22
+#define I2C_MASTER_SDA_IO           21
+#define I2C_MASTER_FREQ_HZ          100000
+#define I2C_MASTER_NUM              I2C_NUM_0
+
+static esp_err_t i2c_master_init(void)
 {
-    ESP_LOGI(TAG, "I2C scanner starting...");
-    ESP_LOGI(TAG, "Scanning I2C bus on GPIO 21 (SDA) and GPIO 22 (SCL)");
-    
-    int devices_found = 0;
-    
-    for (uint8_t addr = 1; addr < 127; addr++) {
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_stop(cmd);
-        
-        esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(50));
-        i2c_cmd_link_delete(cmd);
-        
-        if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "Found I2C device at address: 0x%02X", addr);
-            devices_found++;
-            
-            // Identify known devices
-            if (addr == 0x68) {
-                ESP_LOGI(TAG, "  -> MPU6050 Accelerometer");
-            } else if (addr == 0x3E) {
-                ESP_LOGI(TAG, "  -> LCD1602 Controller");
-            } else if (addr == 0x60) {
-                ESP_LOGI(TAG, "  -> LCD RGB Backlight");
-            }
-        }
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .scl_io_num = I2C_MASTER_SCL_IO,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = I2C_MASTER_FREQ_HZ,
+    };
+
+    esp_err_t err = i2c_param_config(I2C_MASTER_NUM, &conf);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2C config failed: %s", esp_err_to_name(err));
+        return err;
     }
-    
-    if (devices_found == 0) {
-        ESP_LOGW(TAG, "No I2C devices found! Check wiring.");
-    } else {
-        ESP_LOGI(TAG, "I2C scan complete. Found %d device(s)", devices_found);
+
+    err = i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2C driver install failed: %s", esp_err_to_name(err));
+        return err;
     }
+
+    ESP_LOGI(TAG, "I2C master initialized (SDA=%d, SCL=%d)", I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO);
+    return ESP_OK;
 }
 
 void app_main(void)
@@ -73,6 +67,10 @@ void app_main(void)
     // Initialize keypad
     keypad_init();
 
+    // Initialize I2C bus (shared by MPU6050 and LCD)
+    ESP_LOGI(TAG, "Initializing I2C bus...");
+    ESP_ERROR_CHECK(i2c_master_init());
+
     // Create control task (high priority) - handles sensors, keypad, LEDs
     if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create control_task");
@@ -80,19 +78,10 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "Control task created (priority 5)");
     
-    // Wait for MPU6050 to initialize (it sets up I2C bus)
-    vTaskDelay(pdMS_TO_TICKS(500));
-    
-    // Run I2C scanner to detect LCD
-    i2c_scanner();
-    
-    // Initialize and test LCD display
+    // Initialize LCD display (state machine will update it when ready)
     ESP_LOGI(TAG, "Initializing LCD display...");
     if (lcd_display_init()) {
-        lcd_display_set_backlight_rgb(255, 0, 0); // Red backlight
-        lcd_display_write("Smart Safe", 0);
-        lcd_display_write("Initializing...", 1);
-        ESP_LOGI(TAG, "LCD display initialized and tested");
+        ESP_LOGI(TAG, "LCD display initialized");
     } else {
         ESP_LOGE(TAG, "Failed to initialize LCD display");
     }

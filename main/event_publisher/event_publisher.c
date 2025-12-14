@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "../queue_manager/queue_manager.h"
 #include "../json_protocol/json_protocol.h"
+#include "../lcd_display/lcd_display.h"
 
 static const char *TAG = "EVT_PUB";
 
@@ -29,6 +30,9 @@ void event_publisher_state_change(safe_state_machine_t *sm)
     };
     send_event(&event);
     ESP_LOGI(TAG, "State changed to: %s", state_to_string(sm->current_state));
+    
+    // Update LCD display with new state
+    lcd_display_show_state(sm->current_state);
 }
 
 void event_publisher_movement(safe_state_machine_t *sm, float movement)

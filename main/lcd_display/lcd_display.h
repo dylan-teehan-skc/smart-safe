@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "../queue_manager/queue_manager.h"
+#include "../queue_manager/queue_manager.h"
 
 // LCD controller I2C address (HD44780-compatible display)
 #define LCD_CONTROLLER_ADDR 0x3E
@@ -35,5 +37,11 @@ void lcd_display_write(const char *text, uint8_t row);
  * @param b Blue intensity (0-255)
  */
 void lcd_display_set_backlight_rgb(uint8_t r, uint8_t g, uint8_t b);
+
+/**
+ * @brief Display the current safe state with appropriate text and backlight color
+ * @param state Current safe state (LOCKED, UNLOCKED, ALARM)
+ */
+void lcd_display_show_state(safe_state_t state);
 
 #endif // LCD_DISPLAY_H
