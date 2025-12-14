@@ -172,21 +172,24 @@ bool pin_manager_set(const char *new_pin)
         return false;
     }
 
+    // Save to NVS first
+    // either both NVS and RAM succeed, or neither
+    if (!save_pin_to_nvs(new_pin)) {
+        ESP_LOGE(TAG, "Failed to save PIN to NVS");
+        return false;
+    }
+    
+    // Only update RAM if NVS save succeeded
     if (xSemaphoreTake(pin_mutex, portMAX_DELAY) == pdTRUE) {
         strncpy(current_pin, new_pin, MAX_PIN_LENGTH - 1);
         current_pin[MAX_PIN_LENGTH - 1] = '\0';
         xSemaphoreGive(pin_mutex);
         
-        // Save to NVS for persistence
-        if (save_pin_to_nvs(current_pin)) {
-            ESP_LOGI(TAG, "PIN updated and saved to NVS");
-            return true;
-        } else {
-            ESP_LOGW(TAG, "PIN updated in RAM but failed to save to NVS");
-            return false;
-        }
+        ESP_LOGI(TAG, "PIN updated in RAM and NVS");
+        return true;
     } else {
-        ESP_LOGE(TAG, "Failed to acquire PIN mutex");
+        ESP_LOGE(TAG, "Failed to acquire PIN mutex after NVS save");
+        // NVS has new PIN but RAM still has old - will sync on next boot
         return false;
     }
 }
