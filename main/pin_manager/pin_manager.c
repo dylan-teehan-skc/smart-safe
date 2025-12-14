@@ -101,7 +101,7 @@ bool pin_manager_init(const char *default_pin)
     }
 
     // Try to load PIN from NVS
-    char loaded_pin[MAX_PIN_LENGTH];
+    char loaded_pin[MAX_PIN_LENGTH] = {0};
     if (load_pin_from_nvs(loaded_pin, MAX_PIN_LENGTH)) {
         // Validate loaded PIN
         if (pin_manager_validate(loaded_pin)) {
