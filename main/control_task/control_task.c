@@ -12,59 +12,10 @@
 #include "../config.h"
 #include "../mpu6050/mpu6050.h"
 #include "../keypad/keypad.h"
+#include "../pin_manager/pin_manager.h"
+#include "../event_publisher/event_publisher.h"
 
 static const char *TAG = "CTRL";
-
-// PIN configuration
-// Note: PIN_LENGTH is the expected PIN length for validation (4 digits)
-// MAX_PIN_LENGTH (defined in queue_manager.h) is the buffer size (8 bytes)
-static char current_pin[MAX_PIN_LENGTH] = CORRECT_PIN;
-static SemaphoreHandle_t pin_mutex = NULL;
-#define PIN_LENGTH 4
-
-// Initialize the pin mutex before any concurrent access
-void control_task_init(void)
-{
-    if (pin_mutex == NULL) {
-        pin_mutex = xSemaphoreCreateMutex();
-        if (pin_mutex == NULL) {
-            ESP_LOGE(TAG, "Failed to create pin_mutex!");
-        }
-    }
-}
-// Get current timestamp in seconds
-static uint32_t get_timestamp(void)
-{
-    return (uint32_t)(esp_timer_get_time() / 1000000);
-}
-
-// Send state change event to comm task
-static void notify_state_change(safe_state_machine_t *sm)
-{
-    event_t event = {
-        .type = EVT_STATE_CHANGE,
-        .timestamp = get_timestamp(),
-        .state = sm->current_state,
-        .movement_amount = 0.0f,
-        .code_ok = false
-    };
-    send_event(&event);
-    ESP_LOGI(TAG, "State changed to: %s", state_to_string(sm->current_state));
-}
-
-// Send movement event to comm task
-static void notify_movement(safe_state_machine_t *sm, float movement)
-{
-    event_t event = {
-        .type = EVT_MOVEMENT,
-        .timestamp = get_timestamp(),
-        .state = sm->current_state,
-        .movement_amount = movement,
-        .code_ok = false
-    };
-    send_event(&event);
-    ESP_LOGW(TAG, "Movement detected: %.2fg", movement);
-}
 
 static safe_state_machine_t safe_sm;
 
@@ -72,36 +23,10 @@ static safe_state_machine_t safe_sm;
 static char pin_buffer[MAX_PIN_LENGTH] = {0};
 static int pin_index = 0;
 
-// Constant-time string comparison to prevent timing attacks
-static int constant_time_strcmp(const char *a, const char *b)
-{
-    int diff = 0;
-    size_t i = 0;
-    // Compare all characters, don't short-circuit on first difference
-    while (a[i] != '\0' && b[i] != '\0') {
-        diff |= a[i] ^ b[i];
-        i++;
-    }
-    // Also check if lengths differ
-    diff |= a[i] ^ b[i];
-    return diff;
-}
-
 static void process_pin_entry(const char *pin)
 {
-    // Copy current PIN under mutex protection
-    char pin_copy[MAX_PIN_LENGTH];
-    if (xSemaphoreTake(pin_mutex, portMAX_DELAY) == pdTRUE) {
-        strncpy(pin_copy, current_pin, MAX_PIN_LENGTH);
-        xSemaphoreGive(pin_mutex);
-    } else {
-        ESP_LOGE(TAG, "Failed to acquire PIN mutex");
-        return;
-    }
-    
-    // Use constant-time comparison to prevent timing attacks
-    // Do not print the PIN to avoid exposing it in logs
-    if (constant_time_strcmp(pin, pin_copy) == 0) {
+    // Use pin_manager for constant-time verification
+    if (pin_manager_verify(pin)) {
         ESP_LOGI(TAG, "Correct PIN entered");
         safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_CORRECT_PIN);
         ESP_LOGI(TAG, "State: %s", state_to_string(new_state));
@@ -112,18 +37,8 @@ static void process_pin_entry(const char *pin)
             set_locked_led();
         }
         
-        // Send code result event
-        event_t event = {
-            .type = EVT_CODE_RESULT,
-            .timestamp = get_timestamp(),
-            .state = safe_sm.current_state,
-            .movement_amount = 0.0f,
-            .code_ok = true
-        };
-        send_event(&event);
-        
-        // Notify state change
-        notify_state_change(&safe_sm);
+        event_publisher_code_result(&safe_sm, true);
+        event_publisher_state_change(&safe_sm);
     } else {
         // Wrong PIN entered - only process if safe is locked
         if (safe_sm.current_state == STATE_LOCKED) {
@@ -135,40 +50,16 @@ static void process_pin_entry(const char *pin)
 
             if (new_state == STATE_ALARM) {
                 set_alarm_led_flashing();
-                notify_state_change(&safe_sm);
+                event_publisher_state_change(&safe_sm);
             }
             
-            // Send code result event
-            event_t event = {
-                .type = EVT_CODE_RESULT,
-                .timestamp = get_timestamp(),
-                .state = safe_sm.current_state,
-                .movement_amount = 0.0f,
-                .code_ok = false
-            };
-            send_event(&event);
+            event_publisher_code_result(&safe_sm, false);
         } else if (safe_sm.current_state == STATE_UNLOCKED) {
             ESP_LOGW(TAG, "Wrong PIN entered (safe already unlocked, ignoring)");
-            // Send code result event for monitoring
-            event_t event = {
-                .type = EVT_CODE_RESULT,
-                .timestamp = get_timestamp(),
-                .state = safe_sm.current_state,
-                .movement_amount = 0.0f,
-                .code_ok = false
-            };
-            send_event(&event);
+            event_publisher_code_result(&safe_sm, false);
         } else if (safe_sm.current_state == STATE_ALARM) {
             ESP_LOGW(TAG, "Wrong PIN entered (safe in alarm state, use correct PIN to reset)");
-            // Send code result event for monitoring
-            event_t event = {
-                .type = EVT_CODE_RESULT,
-                .timestamp = get_timestamp(),
-                .state = safe_sm.current_state,
-                .movement_amount = 0.0f,
-                .code_ok = false
-            };
-            send_event(&event);
+            event_publisher_code_result(&safe_sm, false);
         }
     }
 }
@@ -222,10 +113,9 @@ void control_task(void *pvParameters)
     (void)pvParameters;
     ESP_LOGI(TAG, "\nControl task started");
 
-    // Create PIN mutex (doesnt need to be deleted as it lasts for task lifetime)
-    pin_mutex = xSemaphoreCreateMutex();
-    if (pin_mutex == NULL) {
-        ESP_LOGE(TAG, "Failed to create PIN mutex");
+    // Initialize PIN manager
+    if (!pin_manager_init(CORRECT_PIN)) {
+        ESP_LOGE(TAG, "Failed to initialize PIN manager");
         vTaskDelete(NULL);
         return;
     }
@@ -244,7 +134,7 @@ void control_task(void *pvParameters)
     ESP_LOGI(TAG, "State machine initialized: %s", state_to_string(safe_sm.current_state));
 
     // Send initial state
-    notify_state_change(&safe_sm);
+    event_publisher_state_change(&safe_sm);
     
     ESP_LOGI(TAG, "Ready for PIN entry:");
     ESP_LOGI(TAG, "  - Press 0-9 to enter digits");
@@ -269,7 +159,7 @@ void control_task(void *pvParameters)
                         state_machine_process_event(&safe_sm, EVENT_CORRECT_PIN);
                         safe_sm.current_state = STATE_LOCKED;
                         set_locked_led();
-                        notify_state_change(&safe_sm);
+                        event_publisher_state_change(&safe_sm);
                     }
                     break;
 
@@ -278,64 +168,15 @@ void control_task(void *pvParameters)
                     if (safe_sm.current_state == STATE_LOCKED) {
                         safe_sm.current_state = STATE_UNLOCKED;
                         set_unlocked_led();
-                        notify_state_change(&safe_sm);
+                        event_publisher_state_change(&safe_sm);
                     }
                     break;
 
                 case CMD_SET_CODE:
                     ESP_LOGI(TAG, "Received SET_CODE command");
-                    // Validate new PIN
                     {
-                        size_t code_len = strlen(cmd.code);
-                        bool valid = (code_len == PIN_LENGTH);
-                        
-                        // Check if all characters are digits
-                        if (valid) {
-                            for (size_t i = 0; i < code_len; i++) {
-                                if (cmd.code[i] < '0' || cmd.code[i] > '9') {
-                                    valid = false;
-                                    ESP_LOGW(TAG, "Invalid PIN: contains non-digit characters");
-                                    break;
-                                }
-                            }
-                        } else {
-                            ESP_LOGW(TAG, "Invalid PIN: must be %d digits, got %zu", PIN_LENGTH, code_len);
-                        }
-                        
-                        if (valid) {
-                            // Update PIN in memory (mutex protected)
-                            if (xSemaphoreTake(pin_mutex, portMAX_DELAY) == pdTRUE) {
-                                strncpy(current_pin, cmd.code, MAX_PIN_LENGTH - 1);
-                                current_pin[MAX_PIN_LENGTH - 1] = '\0';
-                                xSemaphoreGive(pin_mutex);
-                                ESP_LOGI(TAG, "PIN code updated successfully");
-                            } else {
-                                ESP_LOGE(TAG, "Failed to acquire PIN mutex for update");
-                                valid = false;
-                            }
-                            
-                            // TODO: Store new code in NVS for persistence (Phase 7)
-                            
-                            // Send confirmation event
-                            event_t event = {
-                                .type = EVT_CODE_CHANGED,
-                                .timestamp = get_timestamp(),
-                                .state = safe_sm.current_state,
-                                .movement_amount = 0.0f,
-                                .code_ok = true
-                            };
-                            send_event(&event);
-                        } else {
-                            // Send failure event
-                            event_t event = {
-                                .type = EVT_CODE_CHANGED,
-                                .timestamp = get_timestamp(),
-                                .state = safe_sm.current_state,
-                                .movement_amount = 0.0f,
-                                .code_ok = false
-                            };
-                            send_event(&event);
-                        }
+                        bool success = pin_manager_set(cmd.code);
+                        event_publisher_code_changed(&safe_sm, success);
                     }
                     break;
 
@@ -346,7 +187,7 @@ void control_task(void *pvParameters)
                         safe_sm.current_state = STATE_LOCKED;
                         safe_sm.wrong_count = 0;
                         set_locked_led();
-                        notify_state_change(&safe_sm);
+                        event_publisher_state_change(&safe_sm);
                     }
                     break;
 
@@ -361,11 +202,11 @@ void control_task(void *pvParameters)
             if (mpu6050_movement_detected()) {
                 // Movement detected - trigger alarm
                 float movement = mpu6050_read_movement();
-                notify_movement(&safe_sm, movement);
+                event_publisher_movement(&safe_sm, movement);
                 safe_state_t new_state = state_machine_process_event(&safe_sm, EVENT_MOVEMENT);
                 if (new_state == STATE_ALARM) {
                     set_alarm_led_flashing();
-                    notify_state_change(&safe_sm);
+                    event_publisher_state_change(&safe_sm);
                 }
             }
         }
