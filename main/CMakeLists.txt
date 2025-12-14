@@ -9,5 +9,6 @@ idf_component_register(SRCS "main.c"
                             "mpu6050/mpu6050.c"
                             "pin_manager/pin_manager.c"
                             "event_publisher/event_publisher.c"
-                       INCLUDE_DIRS "." "keypad" "pin_manager" "event_publisher"
+                            "command_handler/command_handler.c"
+                       INCLUDE_DIRS "." "keypad" "pin_manager" "event_publisher" "command_handler"
                        )
