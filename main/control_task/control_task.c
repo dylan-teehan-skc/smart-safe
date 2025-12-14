@@ -129,7 +129,8 @@ void control_task(void *pvParameters)
         ESP_LOGE(TAG, "Failed to initialize MPU6050 accelerometer");
     }
 
-    // Initialize state machine
+    // THREAD SAFETY: state machine is ONLY accessed from this control_task
+    // Don't access from other tasks or ISRs without mutex protection
     safe_sm = state_machine_init();
     ESP_LOGI(TAG, "State machine initialized: %s", state_to_string(safe_sm.current_state));
 
