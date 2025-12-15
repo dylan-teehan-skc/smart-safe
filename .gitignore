@@ -16,3 +16,4 @@ main/config.h
 main/config/config.h
 message.txt
 keypad_implementation_plan.md
+lcd_implementation_plan.md

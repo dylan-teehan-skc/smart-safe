@@ -15,6 +15,7 @@
 #include "../pin_manager/pin_manager.h"
 #include "../event_publisher/event_publisher.h"
 #include "../command_handler/command_handler.h"
+#include "../lcd_display/lcd_display.h"
 
 static const char *TAG = "CTRL";
 
@@ -34,8 +35,12 @@ static void process_pin_entry(const char *pin)
 
         if (new_state == STATE_UNLOCKED) {
             set_unlocked_led();
+            // Show success message for 2 seconds before restoring state display
+            lcd_display_show_message("Access Granted!", 2000, new_state);
         } else if (new_state == STATE_LOCKED) {
             set_locked_led();
+            // Show success message for 2 seconds before restoring state display
+            lcd_display_show_message("Safe Locked", 2000, new_state);
         }
         
         event_publisher_code_result(&safe_sm, true);
@@ -52,14 +57,23 @@ static void process_pin_entry(const char *pin)
             if (new_state == STATE_ALARM) {
                 set_alarm_led_flashing();
                 event_publisher_state_change(&safe_sm);
+                // Show alarm message for 2 seconds
+                lcd_display_show_message("ALARM!", 2000, new_state);
+            } else {
+                // Show wrong PIN message with attempt count
+                char msg[17];
+                snprintf(msg, sizeof(msg), "Wrong! %d/3", wrong_count);
+                lcd_display_show_message(msg, 2000, new_state);
             }
             
             event_publisher_code_result(&safe_sm, false);
         } else if (safe_sm.current_state == STATE_UNLOCKED) {
             ESP_LOGW(TAG, "Wrong PIN entered (safe already unlocked, ignoring)");
+            lcd_display_show_message("Already Open", 2000, safe_sm.current_state);
             event_publisher_code_result(&safe_sm, false);
         } else if (safe_sm.current_state == STATE_ALARM) {
             ESP_LOGW(TAG, "Wrong PIN entered (safe in alarm state, use correct PIN to reset)");
+            lcd_display_show_message("Use Correct PIN", 2000, safe_sm.current_state);
             event_publisher_code_result(&safe_sm, false);
         }
     }
@@ -84,6 +98,9 @@ static void handle_key_press(char key)
             
             // Log masked PIN (show asterisks for security)
             ESP_LOGI(TAG, "PIN entry: %.*s", pin_index, "****");
+            
+            // Update LCD with masked PIN entry
+            lcd_display_show_pin_entry(pin_index);
         } else {
             ESP_LOGW(TAG, "PIN buffer full (%d digits max)", PIN_LENGTH);
         }
@@ -91,11 +108,13 @@ static void handle_key_press(char key)
     // Handle clear key (*)
     else if (key == '*') {
         clear_pin_buffer();
+        lcd_display_clear_pin_entry();
     }
     // Handle submit key (#)
     else if (key == '#') {
         if (pin_index == PIN_LENGTH) {
             ESP_LOGI(TAG, "PIN submitted (%d digits)", PIN_LENGTH);
+            lcd_display_show_checking();
             process_pin_entry(pin_buffer);
         } else if (pin_index > 0) {
             ESP_LOGW(TAG, "PIN too short (%d digits, need %d)", pin_index, PIN_LENGTH);
