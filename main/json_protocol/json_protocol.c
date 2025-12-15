@@ -139,6 +139,18 @@ bool json_to_command(const char *json, size_t len, command_t *cmd)
         cmd->type = CMD_RESET_ALARM;
         cmd->code[0] = '\0';
     }
+    else if (strcmp(cmd_str, "set_sensitivity") == 0) {
+        cmd->type = CMD_SET_SENSITIVITY;
+        cmd->code[0] = '\0';
+
+        cJSON *sensitivity = cJSON_GetObjectItem(root, "value");
+        if (!cJSON_IsNumber(sensitivity)) {
+            ESP_LOGE(TAG, "set_sensitivity requires 'value' field");
+            cJSON_Delete(root);
+            return false;
+        }
+        cmd->sensitivity = (int32_t)sensitivity->valuedouble;
+    }
     else {
         ESP_LOGE(TAG, "Unknown command: %s", cmd_str);
         cJSON_Delete(root);

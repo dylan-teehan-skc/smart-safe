@@ -2,7 +2,10 @@
 #include "esp_timer.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "leds.h"
+#include "../queue_manager/queue_manager.h"
 
 // Flash interval for alarm state
 #define ALARM_FLASH_INTERVAL_US (500 * 1000)
@@ -88,5 +91,38 @@ void leds_update(void)
         alarm_led_on = !alarm_led_on;
         last_toggle_time_us = now;
         set_outputs(alarm_led_on, 0);
+    }
+}
+
+void led_task(void *pvParameters)
+{
+    (void)pvParameters;
+    ESP_LOGI(TAG, "LED task started (Priority 3)");
+
+    // Initialize LEDs
+    leds_init();
+    set_locked_led();  // Default to locked state
+
+    while (1) {
+        // Check for LED commands (non-blocking)
+        led_cmd_t cmd;
+        if (receive_led_cmd(&cmd, 0)) {
+            switch (cmd.type) {
+                case LED_CMD_LOCKED:
+                    set_locked_led();
+                    break;
+                case LED_CMD_UNLOCKED:
+                    set_unlocked_led();
+                    break;
+                case LED_CMD_ALARM:
+                    set_alarm_led_flashing();
+                    break;
+            }
+        }
+
+        // Update alarm flashing animation
+        leds_update();
+
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }

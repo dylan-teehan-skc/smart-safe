@@ -402,7 +402,7 @@ static bool wifi_init(void)
     ESP_LOGI(TAG, "WiFi power saving disabled");
 
     ESP_LOGI(TAG, "Connecting to WiFi: %s", WIFI_SSID);
-    ESP_LOGI(TAG, "Waiting for connection (this may take 10-30 seconds)...");
+    ESP_LOGI(TAG, "Waiting for connection");
 
     // Wait for connection
     xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
@@ -594,6 +594,10 @@ void comm_task(void *pvParameters)
 {
     (void)pvParameters;
     ESP_LOGI(TAG, "Comm task started");
+
+    // Wait for system to stabilize before WiFi init
+    // This prevents race conditions during startup when other tasks are initializing
+    vTaskDelay(pdMS_TO_TICKS(500));
 
     // Create mutex for event buffer thread safety
     event_buffer_mutex = xSemaphoreCreateMutex();

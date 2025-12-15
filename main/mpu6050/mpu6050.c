@@ -3,8 +3,11 @@
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "../lcd_display/lcd_display.h"
+#include "../queue_manager/queue_manager.h"
+#include "../config.h"
 
 static const char *TAG = "MPU6050";
 
@@ -25,6 +28,7 @@ static SemaphoreHandle_t i2c_mutex = NULL;
 
 static bool initialized = false;
 static int movement_hit_count = 0;
+static int32_t movement_threshold = INITIAL_SENSITIVITY;
 
 static esp_err_t mpu6050_write_reg(uint8_t reg_addr, uint8_t data)
 {
@@ -150,9 +154,9 @@ bool mpu6050_movement_detected(void)
     int16_t accel_y = (int16_t)((data[2] << 8) | data[3]);
     int16_t accel_z = (int16_t)((data[4] << 8) | data[5]);
 
-    // Calculate magnitude squared
-    int32_t magnitude_sq = (accel_x * accel_x) + (accel_y * accel_y) + (accel_z * accel_z);
-    int32_t threshold_sq = (int32_t)MOVEMENT_THRESHOLD_RAW * MOVEMENT_THRESHOLD_RAW;
+    // Calculate magnitude squared (use int64_t to avoid overflow)
+    int64_t magnitude_sq = (int64_t)accel_x * accel_x + (int64_t)accel_y * accel_y + (int64_t)accel_z * accel_z;
+    int64_t threshold_sq = (int64_t)movement_threshold * movement_threshold;
 
     // Debounce: require consecutive over-threshold readings
     if (magnitude_sq > threshold_sq) {
@@ -170,4 +174,43 @@ bool mpu6050_movement_detected(void)
     }
 
     return false;
+}
+
+void mpu6050_set_threshold(int32_t threshold)
+{
+    if (threshold < MOVEMENT_THRESHOLD_MIN) {
+        threshold = MOVEMENT_THRESHOLD_MIN;
+    } else if (threshold > MOVEMENT_THRESHOLD_MAX) {
+        threshold = MOVEMENT_THRESHOLD_MAX;
+    }
+    movement_threshold = threshold;
+    ESP_LOGI(TAG, "Movement threshold set to %ld", (long)movement_threshold);
+}
+
+int32_t mpu6050_get_threshold(void)
+{
+    return movement_threshold;
+}
+
+void sensor_task(void *pvParameters)
+{
+    (void)pvParameters;
+    ESP_LOGI(TAG, "Sensor task started (Priority 5)");
+
+    // Initialize sensor
+    if (!mpu6050_init()) {
+        ESP_LOGE(TAG, "Failed to initialize MPU6050, task exiting");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    while (1) {
+        if (mpu6050_movement_detected()) {
+            float movement = mpu6050_read_movement();
+            sensor_event_t evt = { .movement_g = movement };
+            send_sensor_event(&evt);
+            ESP_LOGW(TAG, "Movement %.2fg sent to queue", movement);
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 }

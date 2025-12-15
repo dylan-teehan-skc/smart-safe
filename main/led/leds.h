@@ -12,7 +12,6 @@ typedef enum {
 } led_mode_t;
 
 // GPIO pin definitions for LEDs
-// IMPORTANT: LEDs must be wired with series resistors between GPIO and LED anode.
 #define RED_LED_PIN   GPIO_NUM_4
 #define GREEN_LED_PIN GPIO_NUM_18
 
@@ -21,6 +20,9 @@ void set_locked_led(void);
 void set_unlocked_led(void);
 void set_alarm_led_flashing(void);
 void leds_update(void);
-led_mode_t leds_get_mode(void);
+
+// FreeRTOS task that receives LED commands and handles alarm flashing
+// Priority 3 - real-time 500ms flash animation
+void led_task(void *pvParameters);
 
 #endif

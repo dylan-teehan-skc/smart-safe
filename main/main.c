@@ -4,11 +4,13 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/i2c.h"
-#include "control_task/control_task.h"
-#include "comm_task/comm_task.h"
 #include "queue_manager/queue_manager.h"
 #include "keypad/keypad.h"
+#include "mpu6050/mpu6050.h"
+#include "led/leds.h"
 #include "lcd_display/lcd_display.h"
+#include "control_task/control_task.h"
+#include "comm_task/comm_task.h"
 
 static const char *TAG = "MAIN";
 
@@ -17,6 +19,24 @@ static const char *TAG = "MAIN";
 #define I2C_MASTER_SDA_IO           21
 #define I2C_MASTER_FREQ_HZ          100000
 #define I2C_MASTER_NUM              I2C_NUM_0
+
+// Task priorities (higher number = higher priority)
+// See docs/task-architecture.md for detailed rationale
+#define KEYPAD_TASK_PRIORITY    6   // Highest - user expects instant response
+#define SENSOR_TASK_PRIORITY    5   // Security critical tamper detection
+#define CONTROL_TASK_PRIORITY   4   // Central logic coordinator
+#define LED_TASK_PRIORITY       3   // Real-time 500ms alarm flash
+#define LCD_TASK_PRIORITY       2   // Slow I2C, non-critical timing
+#define COMM_TASK_PRIORITY      1   // Lowest - network can be slow
+
+// Task stack sizes
+// NOTE: Stack sizes account for NVS operations, logging, and library usage
+#define KEYPAD_TASK_STACK   2048
+#define SENSOR_TASK_STACK   2048
+#define CONTROL_TASK_STACK  8192    // Needs extra for NVS operations in pin_manager
+#define LED_TASK_STACK      2048
+#define LCD_TASK_STACK      3072    // I2C operations need extra stack
+#define COMM_TASK_STACK     8192
 
 static esp_err_t i2c_master_init(void)
 {
@@ -58,45 +78,71 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "NVS initialized");
 
+    // Initialize I2C bus (shared by MPU6050 and LCD)
+    ESP_LOGI(TAG, "Initializing I2C bus...");
+    ESP_ERROR_CHECK(i2c_master_init());
+
     // Initialize queues for inter-task communication
+    // Creates 6 queues: key_queue, sensor_queue, led_queue, lcd_queue, event_queue, cmd_queue
     if (!queue_manager_init()) {
         ESP_LOGE(TAG, "Failed to initialize queues");
         return;
     }
 
-    // Initialize keypad
+    // Initialize keypad GPIO and ISR (must be done before keypad_task starts)
     keypad_init();
 
-    // Initialize I2C bus (shared by MPU6050 and LCD)
-    ESP_LOGI(TAG, "Initializing I2C bus...");
-    ESP_ERROR_CHECK(i2c_master_init());
+    ESP_LOGI(TAG, "Creating 6 FreeRTOS tasks...");
 
-    // Initialize LCD display (state machine will update it when ready)
-    ESP_LOGI(TAG, "Initializing LCD display...");
-    if (lcd_display_init()) {
-        ESP_LOGI(TAG, "LCD display initialized");
-    } else {
-        ESP_LOGE(TAG, "Failed to initialize LCD display");
-    }
-    
-    // Create control task (high priority) - handles sensors, keypad, LEDs
-    if (xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL) != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create control_task");
-        return;
-    }
-    ESP_LOGI(TAG, "Control task created (priority 5)");
-    
+    // Task creation - lowest to highest priority
 
-    // Create comm task (lower priority) - handles WiFi, MQTT
-    // NOTE: The comm_task stack size is set to 8192 bytes (double control_task's 4096)
-    // This is required due to memory-intensive operations such as cJSON parsing,
-    // WiFi and MQTT stack usage, which can cause stack overflows with smaller sizes.
-    // Do not reduce this value without thoroughly testing comm_task functionality.
-    if (xTaskCreate(comm_task, "comm_task", 8192, NULL, 3, NULL) != pdPASS) {
+    // Priority 1 (lowest): Comm task - handles WiFi, MQTT
+    // Can tolerate delays without affecting safe operation
+    if (xTaskCreate(comm_task, "comm_task", COMM_TASK_STACK, NULL, COMM_TASK_PRIORITY, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create comm_task");
         return;
     }
-    ESP_LOGI(TAG, "Comm task created (priority 3)");
+    ESP_LOGI(TAG, "  comm_task created (priority %d)", COMM_TASK_PRIORITY);
 
-    ESP_LOGI(TAG, "Smart Safe initialized");
+    // Priority 2: LCD task - handles display updates
+    // Slow I2C writes, non-critical timing
+    if (xTaskCreate(lcd_task, "lcd_task", LCD_TASK_STACK, NULL, LCD_TASK_PRIORITY, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create lcd_task");
+        return;
+    }
+    ESP_LOGI(TAG, "  lcd_task created (priority %d)", LCD_TASK_PRIORITY);
+
+    // Priority 3: LED task - handles LED state and alarm flashing
+    // Real-time 500ms flash animation for alarm state
+    if (xTaskCreate(led_task, "led_task", LED_TASK_STACK, NULL, LED_TASK_PRIORITY, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create led_task");
+        return;
+    }
+    ESP_LOGI(TAG, "  led_task created (priority %d)", LED_TASK_PRIORITY);
+
+    // Priority 4: Control task - state machine, PIN verification, command handling
+    // Central coordinator that processes all inputs and makes decisions
+    if (xTaskCreate(control_task, "control_task", CONTROL_TASK_STACK, NULL, CONTROL_TASK_PRIORITY, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create control_task");
+        return;
+    }
+    ESP_LOGI(TAG, "  control_task created (priority %d)", CONTROL_TASK_PRIORITY);
+
+    // Priority 5: Sensor task - MPU6050 accelerometer polling
+    // Security critical - tamper detection must not be delayed
+    if (xTaskCreate(sensor_task, "sensor_task", SENSOR_TASK_STACK, NULL, SENSOR_TASK_PRIORITY, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create sensor_task");
+        return;
+    }
+    ESP_LOGI(TAG, "  sensor_task created (priority %d)", SENSOR_TASK_PRIORITY);
+
+    // Priority 6 (highest): Keypad task - handles user input
+    // User expects immediate response to key presses
+    if (xTaskCreate(keypad_task, "keypad_task", KEYPAD_TASK_STACK, NULL, KEYPAD_TASK_PRIORITY, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create keypad_task");
+        return;
+    }
+    ESP_LOGI(TAG, "  keypad_task created (priority %d)", KEYPAD_TASK_PRIORITY);
+
+    ESP_LOGI(TAG, "Smart Safe initialized with 6 tasks");
 }
