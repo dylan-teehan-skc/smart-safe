@@ -51,13 +51,22 @@ void lcd_display_show_state(safe_state_t state);
 void lcd_display_show_pin_entry(int length);
 
 /**
- * @brief Clear PIN entry line
+ * @brief Clear PIN entry display
  */
 void lcd_display_clear_pin_entry(void);
 
 /**
- * @brief Show "Checking..." message during PIN verification
+ * @brief Show "Checking..." message
  */
 void lcd_display_show_checking(void);
+
+/**
+ * @brief Display a temporary message that auto-clears after timeout
+ * Uses timer interrupt for non-blocking operation
+ * @param message Text to display on row 1 (max 16 characters)
+ * @param duration_ms How long to display the message (milliseconds)
+ * @param state Safe state to restore after timeout
+ */
+void lcd_display_show_message(const char *message, uint32_t duration_ms, safe_state_t state);
 
 #endif // LCD_DISPLAY_H

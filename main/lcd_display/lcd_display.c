@@ -1,11 +1,17 @@
 #include "lcd_display.h"
 #include "driver/i2c.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "LCD";
+
+// Timer handle for message timeout
+static esp_timer_handle_t message_timer = NULL;
+static safe_state_t restore_state = STATE_LOCKED;
+static volatile bool message_active = false;
 
 // I2C port (shared with MPU6050)
 #define I2C_PORT I2C_NUM_0
@@ -206,6 +212,14 @@ void lcd_display_show_state(safe_state_t state)
 
 void lcd_display_show_pin_entry(int length)
 {
+    // Cancel any active message timer when user starts entering PIN
+    if (message_timer != NULL) {
+        esp_timer_stop(message_timer);
+        esp_timer_delete(message_timer);
+        message_timer = NULL;
+        message_active = false;
+    }
+    
     if (length < 0 || length > 4) {
         ESP_LOGW(TAG, "Invalid PIN length: %d", length);
         return;
@@ -226,12 +240,79 @@ void lcd_display_show_pin_entry(int length)
 
 void lcd_display_clear_pin_entry(void)
 {
+    // Cancel any active message timer when clearing PIN entry
+    if (message_timer != NULL) {
+        esp_timer_stop(message_timer);
+        esp_timer_delete(message_timer);
+        message_timer = NULL;
+        message_active = false;
+    }
+    
     lcd_display_write("Ready", 1);
     ESP_LOGI(TAG, "PIN entry cleared");
 }
 
 void lcd_display_show_checking(void)
 {
+    // Cancel any active message timer when starting PIN check
+    if (message_timer != NULL) {
+        esp_timer_stop(message_timer);
+        esp_timer_delete(message_timer);
+        message_timer = NULL;
+        message_active = false;
+    }
+    
     lcd_display_write("Checking...", 1);
     ESP_LOGI(TAG, "Showing checking message");
+}
+
+// Timer callback to restore ready state on row 1
+static void message_timeout_callback(void *arg)
+{
+    ESP_LOGI(TAG, "Message timeout - restoring ready state");
+    message_active = false;
+    // Only restore row 1 to "Ready" - keep row 0 state display intact
+    lcd_display_write("Ready", 1);
+}
+
+void lcd_display_show_message(const char *message, uint32_t duration_ms, safe_state_t state)
+{
+    // Store state to restore after timeout
+    restore_state = state;
+    
+    // Mark message as active to prevent PIN entry updates
+    message_active = true;
+    
+    // Display the message on row 1
+    lcd_display_write(message, 1);
+    ESP_LOGI(TAG, "Showing message: %s (timeout: %lu ms)", message, duration_ms);
+    
+    // Stop existing timer if running
+    if (message_timer != NULL) {
+        esp_timer_stop(message_timer);
+        esp_timer_delete(message_timer);
+        message_timer = NULL;
+    }
+    
+    // Create timer for message timeout
+    const esp_timer_create_args_t timer_args = {
+        .callback = &message_timeout_callback,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "lcd_msg_timer"
+    };
+    
+    esp_err_t err = esp_timer_create(&timer_args, &message_timer);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create message timer: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    // Start one-shot timer
+    err = esp_timer_start_once(message_timer, duration_ms * 1000ULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start message timer: %s", esp_err_to_name(err));
+        esp_timer_delete(message_timer);
+        message_timer = NULL;
+    }
 }
