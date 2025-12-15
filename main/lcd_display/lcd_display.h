@@ -6,7 +6,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "../queue_manager/queue_manager.h"
-#include "../queue_manager/queue_manager.h"
 
 // LCD controller I2C address (HD44780-compatible display)
 #define LCD_CONTROLLER_ADDR 0x3E
