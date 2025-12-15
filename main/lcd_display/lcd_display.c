@@ -214,10 +214,13 @@ void lcd_display_show_pin_entry(int length)
 {
     // Cancel any active message timer when user starts entering PIN
     if (message_timer != NULL) {
-        esp_timer_stop(message_timer);
-        esp_timer_delete(message_timer);
-        message_timer = NULL;
+        esp_timer_handle_t timer_to_delete = message_timer;
+        message_timer = NULL;  // Clear handle first to prevent callback from accessing
         message_active = false;
+        
+        // Stop and delete timer (ignore errors if already fired)
+        esp_timer_stop(timer_to_delete);
+        esp_timer_delete(timer_to_delete);
     }
     
     if (length < 0 || length > 4) {
@@ -242,10 +245,13 @@ void lcd_display_clear_pin_entry(void)
 {
     // Cancel any active message timer when clearing PIN entry
     if (message_timer != NULL) {
-        esp_timer_stop(message_timer);
-        esp_timer_delete(message_timer);
-        message_timer = NULL;
+        esp_timer_handle_t timer_to_delete = message_timer;
+        message_timer = NULL;  // Clear handle first to prevent callback from accessing
         message_active = false;
+        
+        // Stop and delete timer (ignore errors if already fired)
+        esp_timer_stop(timer_to_delete);
+        esp_timer_delete(timer_to_delete);
     }
     
     lcd_display_write("Ready", 1);
@@ -256,10 +262,13 @@ void lcd_display_show_checking(void)
 {
     // Cancel any active message timer when starting PIN check
     if (message_timer != NULL) {
-        esp_timer_stop(message_timer);
-        esp_timer_delete(message_timer);
-        message_timer = NULL;
+        esp_timer_handle_t timer_to_delete = message_timer;
+        message_timer = NULL;  // Clear handle first to prevent callback from accessing
         message_active = false;
+        
+        // Stop and delete timer (ignore errors if already fired)
+        esp_timer_stop(timer_to_delete);
+        esp_timer_delete(timer_to_delete);
     }
     
     lcd_display_write("Checking...", 1);
@@ -289,9 +298,12 @@ void lcd_display_show_message(const char *message, uint32_t duration_ms, safe_st
     
     // Stop existing timer if running
     if (message_timer != NULL) {
-        esp_timer_stop(message_timer);
-        esp_timer_delete(message_timer);
-        message_timer = NULL;
+        esp_timer_handle_t timer_to_delete = message_timer;
+        message_timer = NULL;  // Clear handle first to prevent callback from accessing
+        
+        // Stop and delete timer (ignore errors if already fired)
+        esp_timer_stop(timer_to_delete);
+        esp_timer_delete(timer_to_delete);
     }
     
     // Create timer for message timeout
