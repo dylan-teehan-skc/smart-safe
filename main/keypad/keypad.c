@@ -10,16 +10,16 @@ static const char *TAG = "KEYPAD";
 
 // GPIO pin definitions for 4x4 keypad
 // Rows: Outputs (driven low one at a time)
-#define ROW1_PIN GPIO_NUM_25
-#define ROW2_PIN GPIO_NUM_26
-#define ROW3_PIN GPIO_NUM_27
-#define ROW4_PIN GPIO_NUM_9
+#define ROW1_PIN GPIO_NUM_2
+#define ROW2_PIN GPIO_NUM_5
+#define ROW3_PIN GPIO_NUM_13
+#define ROW4_PIN GPIO_NUM_10
 
 // Columns: Inputs (with pull-ups)
-#define COL1_PIN GPIO_NUM_10
-#define COL2_PIN GPIO_NUM_13
-#define COL3_PIN GPIO_NUM_5
-#define COL4_PIN GPIO_NUM_2
+#define COL1_PIN GPIO_NUM_9
+#define COL2_PIN GPIO_NUM_27
+#define COL3_PIN GPIO_NUM_26
+#define COL4_PIN GPIO_NUM_25
 
 // Array of row and column pins for easy iteration
 static const gpio_num_t row_pins[4] = {ROW1_PIN, ROW2_PIN, ROW3_PIN, ROW4_PIN};
@@ -39,22 +39,22 @@ static QueueHandle_t keypad_queue = NULL;
 
 // Debounce timer for ISR
 static volatile TickType_t last_interrupt_time = 0;
-// Debounce delay in milliseconds. 50ms is a typical value for mechanical keypads to filter out switch bounce.
-// This value may need adjustment depending on the specific keypad hardware used.
+
 #define DEBOUNCE_DELAY_MS 50
 
 // ISR handler - called when any column pin goes LOW
+// IRAM_ATTR places in internal RAM -> faster than flash memory
 static void IRAM_ATTR keypad_isr_handler(void *arg)
 {
     TickType_t current_time = xTaskGetTickCountFromISR();
     
-    // Simple debounce: ignore interrupts within DEBOUNCE_DELAY_MS
+    // Debounce check
     if ((current_time - last_interrupt_time) < (DEBOUNCE_DELAY_MS / portTICK_PERIOD_MS)) {
         return;
     }
     last_interrupt_time = current_time;
     
-    // Set flag to trigger scan in task context
+    // Set flag to trigger scan in task context (we are in ISR here)
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     uint8_t dummy = 1;
     xQueueSendFromISR(keypad_queue, &dummy, &xHigherPriorityTaskWoken);
@@ -64,25 +64,25 @@ static void IRAM_ATTR keypad_isr_handler(void *arg)
     }
 }
 
-// Scan the matrix to find which key is pressed
+// Scan the keypad matrix to detect which key is pressed
 static char keypad_scan(void)
 {
     char detected_key = '\0';
     
     // Scan each row
     for (int row = 0; row < 4; row++) {
-        // Set all rows high
+        // Set all rows HIGH
         for (int i = 0; i < 4; i++) {
             gpio_set_level(row_pins[i], 1);
         }
         
-        // Drive current row low
+        // Drive current row LOW
         gpio_set_level(row_pins[row], 0);
         
-        // Short delay for signal stabilization
-        ets_delay_us(100);  // 100 microseconds
+        // Short delay for stable signal (100 us)
+        ets_delay_us(100);
         
-        // Read all columns
+        // Read all columns (if LOW then key pressed)
         for (int col = 0; col < 4; col++) {
             if (gpio_get_level(col_pins[col]) == 0) {
                 detected_key = key_map[row][col];
@@ -95,7 +95,7 @@ static char keypad_scan(void)
         }
     }
     
-    // Return all rows to LOW for interrupt detection
+    // Return all rows to LOW for next interrupt detection
     for (int i = 0; i < 4; i++) {
         gpio_set_level(row_pins[i], 0);
     }
@@ -114,7 +114,7 @@ void keypad_init(void)
         return;
     }
     
-    // Configure row pins as outputs (initially LOW to enable interrupt detection)
+    // Row pins configed as outputs (low by default)
     gpio_config_t row_conf = {
         .pin_bit_mask = ((1ULL << ROW1_PIN) | (1ULL << ROW2_PIN) | 
                          (1ULL << ROW3_PIN) | (1ULL << ROW4_PIN)),
@@ -137,7 +137,7 @@ void keypad_init(void)
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_NEGEDGE,  // Trigger on falling edge (key press)
+        .intr_type = GPIO_INTR_NEGEDGE, // Interrupt on falling edge
     };
     gpio_config(&col_conf);
     
@@ -161,6 +161,8 @@ void keypad_init(void)
 char keypad_get_key(void)
 {
     uint8_t dummy;
+    static bool key_is_pressed = false;
+    static TickType_t last_press_time = 0;
     
     // Check for interrupt signal (non-blocking)
     if (xQueueReceive(keypad_queue, &dummy, 0) == pdTRUE) {
@@ -172,7 +174,25 @@ char keypad_get_key(void)
         char key2 = keypad_scan();
         
         if (key == key2 && key != '\0') {
-            return key;
+            // Key is pressed
+            if (!key_is_pressed) {
+                // First press of this key
+                key_is_pressed = true;
+                last_press_time = xTaskGetTickCount();
+                return key;  // Return the key
+            }
+            // Else: key still held down, ignore (prevents repeat)
+        } else {
+            // No key detected or mismatch = key released
+            key_is_pressed = false;
+        }
+    } else {
+        // Auto-reset if no activity for 500ms (safety fallback for stuck keys)
+        if (key_is_pressed) {
+            TickType_t now = xTaskGetTickCount();
+            if ((now - last_press_time) > pdMS_TO_TICKS(500)) {
+                key_is_pressed = false;
+            }
         }
     }
     

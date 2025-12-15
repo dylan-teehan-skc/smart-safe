@@ -49,13 +49,19 @@ safe_state_t state_machine_process_event(safe_state_machine_t *sm, safe_event_t 
             break;
 
         case STATE_UNLOCKED:
-            // No alarm on movement when unlocked (user is accessing the safe)
+            if (event == EVENT_CORRECT_PIN) {
+                // Toggle back to locked when correct PIN entered while unlocked
+                set_locked(sm);
+            }
+            // Wrong PINs are ignored when unlocked (no counting, no alarm)
+            // Movement is ignored when unlocked (user is accessing the safe)
             break;
 
         case STATE_ALARM:
             if (event == EVENT_CORRECT_PIN) {
                 set_locked(sm);
             }
+            // Wrong PINs are ignored in alarm state (must use correct PIN to reset)
             break;
 
         default:

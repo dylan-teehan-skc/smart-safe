@@ -16,7 +16,8 @@ void keypad_init(void);
  * @brief Non-blocking check for keypad press
  * 
  * Checks if a key press interrupt occurred and scans the matrix if so.
- * Returns immediately if no key is pressed.
+ * Returns immediately if no key is pressed. 
+ * Should only be called once, unsafe if called from multiple tasks.
  * 
  * @return char The pressed key (0-9, A-D, *, #) or '\0' if none
  */
