@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "../queue_manager/queue_manager.h"
 #include "../queue_manager/queue_manager.h"
 
@@ -13,10 +15,20 @@
 #define LCD_BACKLIGHT_ADDR 0x60
 
 /**
- * @brief Initialize the LCD display
+ * @brief Initialize the LCD display and I2C mutex
+ * Creates the I2C bus mutex shared with MPU6050 to prevent bus contention.
+ * MUST be called before any I2C device initialization (LCD or MPU6050).
  * @return true if successful, false otherwise
  */
 bool lcd_display_init(void);
+
+/**
+ * @brief Get the I2C mutex handle for shared bus protection
+ * Other I2C devices (e.g., MPU6050) MUST use this mutex to protect their
+ * I2C transactions and prevent bus contention.
+ * @return I2C mutex handle, or NULL if lcd_display_init() not called yet
+ */
+SemaphoreHandle_t lcd_display_get_i2c_mutex(void);
 
 /**
  * @brief Clear the LCD display

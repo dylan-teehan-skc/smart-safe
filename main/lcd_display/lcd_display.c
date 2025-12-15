@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <string.h>
 
 static const char *TAG = "LCD";
@@ -15,6 +16,11 @@ static volatile bool message_active = false;
 
 // I2C port (shared with MPU6050)
 #define I2C_PORT I2C_NUM_0
+
+// Mutex for I2C bus protection (shared with MPU6050)
+// IMPORTANT: All I2C transactions to LCD and MPU6050 must acquire this mutex
+// to prevent bus contention and transaction interleaving
+static SemaphoreHandle_t i2c_mutex = NULL;
 
 // RGB backlight registers for DFRobot DFR0464 (address 0x60)
 #define RGB_MODE1               0x00
@@ -54,6 +60,11 @@ static volatile bool message_active = false;
 // Send command to LCD controller (0x3E) using register protocol
 static esp_err_t lcd_send_command(uint8_t cmd)
 {
+    if (i2c_mutex == NULL || xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire I2C mutex for command");
+        return ESP_ERR_TIMEOUT;
+    }
+    
     i2c_cmd_handle_t i2c_cmd = i2c_cmd_link_create();
     i2c_master_start(i2c_cmd);
     i2c_master_write_byte(i2c_cmd, (LCD_CONTROLLER_ADDR << 1) | I2C_MASTER_WRITE, true);
@@ -62,12 +73,19 @@ static esp_err_t lcd_send_command(uint8_t cmd)
     i2c_master_stop(i2c_cmd);
     esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, i2c_cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(i2c_cmd);
+    
+    xSemaphoreGive(i2c_mutex);
     return ret;
 }
 
 // Send data to LCD controller (0x3E) using register protocol
 static esp_err_t lcd_send_data_byte(uint8_t data)
 {
+    if (i2c_mutex == NULL || xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire I2C mutex for data");
+        return ESP_ERR_TIMEOUT;
+    }
+    
     i2c_cmd_handle_t i2c_cmd = i2c_cmd_link_create();
     i2c_master_start(i2c_cmd);
     i2c_master_write_byte(i2c_cmd, (LCD_CONTROLLER_ADDR << 1) | I2C_MASTER_WRITE, true);
@@ -76,12 +94,19 @@ static esp_err_t lcd_send_data_byte(uint8_t data)
     i2c_master_stop(i2c_cmd);
     esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, i2c_cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(i2c_cmd);
+    
+    xSemaphoreGive(i2c_mutex);
     return ret;
 }
 
 // Write to RGB backlight controller (0x60)
 static esp_err_t rgb_write_register(uint8_t reg, uint8_t value)
 {
+    if (i2c_mutex == NULL || xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire I2C mutex for RGB");
+        return ESP_ERR_TIMEOUT;
+    }
+    
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (LCD_BACKLIGHT_ADDR << 1) | I2C_MASTER_WRITE, true);
@@ -90,42 +115,84 @@ static esp_err_t rgb_write_register(uint8_t reg, uint8_t value)
     i2c_master_stop(cmd);
     esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
+    
+    xSemaphoreGive(i2c_mutex);
     return ret;
 }
 
-
+SemaphoreHandle_t lcd_display_get_i2c_mutex(void)
+{
+    return i2c_mutex;
+}
 
 bool lcd_display_init(void)
 {
     ESP_LOGI(TAG, "Initializing LCD controller at 0x%02X", LCD_CONTROLLER_ADDR);
     ESP_LOGI(TAG, "Initializing RGB backlight at 0x%02X", LCD_BACKLIGHT_ADDR);
     
+    // Create I2C mutex for bus protection (shared with MPU6050)
+    if (i2c_mutex == NULL) {
+        i2c_mutex = xSemaphoreCreateMutex();
+        if (i2c_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create I2C mutex");
+            return false;
+        }
+    }
+    
     // Wait for LCD to power up
     vTaskDelay(pdMS_TO_TICKS(50));
     
     // Initialize RGB backlight controller (DFRobot DFR0464 at 0x60)
-    rgb_write_register(RGB_MODE1, 0x00);    // Normal mode
-    rgb_write_register(RGB_LEDOUT, 0xFF);   // Enable all LED outputs (full PWM)
-    rgb_write_register(RGB_MODE2, 0x20);    // DMBLNK to 1 (blink mode)
+    esp_err_t ret = rgb_write_register(RGB_MODE1, 0x00);    // Normal mode
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure RGB MODE1: %s", esp_err_to_name(ret));
+        return false;
+    }
+    ret = rgb_write_register(RGB_LEDOUT, 0xFF);   // Enable all LED outputs (full PWM)
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure RGB LEDOUT: %s", esp_err_to_name(ret));
+        return false;
+    }
+    ret = rgb_write_register(RGB_MODE2, 0x20);    // DMBLNK to 1 (blink mode)
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure RGB MODE2: %s", esp_err_to_name(ret));
+        return false;
+    }
     ESP_LOGI(TAG, "RGB backlight controller initialized");
     
     // LCD initialization sequence for HD44780 via I2C
     vTaskDelay(pdMS_TO_TICKS(50));
     
     // Function set: 8-bit mode, 2 lines, 5x8 font (DFRobot uses 8-bit I2C interface)
-    lcd_send_command(LCD_CMD_FUNCTION_SET | 0x10 | LCD_FUNCTION_2LINE | LCD_FUNCTION_5x8);
+    ret = lcd_send_command(LCD_CMD_FUNCTION_SET | 0x10 | LCD_FUNCTION_2LINE | LCD_FUNCTION_5x8);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send function set command: %s", esp_err_to_name(ret));
+        return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(5));
     
     // Display control: display on, cursor off, blink off
-    lcd_send_command(LCD_CMD_DISPLAY_CTRL | LCD_DISPLAY_ON | LCD_CURSOR_OFF | LCD_BLINK_OFF);
+    ret = lcd_send_command(LCD_CMD_DISPLAY_CTRL | LCD_DISPLAY_ON | LCD_CURSOR_OFF | LCD_BLINK_OFF);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send display control command: %s", esp_err_to_name(ret));
+        return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(1));
     
     // Clear display
-    lcd_send_command(LCD_CMD_CLEAR);
+    ret = lcd_send_command(LCD_CMD_CLEAR);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to clear display: %s", esp_err_to_name(ret));
+        return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(2));
     
     // Entry mode: left to right, no shift
-    lcd_send_command(LCD_CMD_ENTRY_MODE | LCD_ENTRY_LEFT | LCD_ENTRY_SHIFT_DEC);
+    ret = lcd_send_command(LCD_CMD_ENTRY_MODE | LCD_ENTRY_LEFT | LCD_ENTRY_SHIFT_DEC);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send entry mode command: %s", esp_err_to_name(ret));
+        return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(1));
     
     ESP_LOGI(TAG, "LCD initialized successfully");
@@ -134,7 +201,11 @@ bool lcd_display_init(void)
 
 void lcd_display_clear(void)
 {
-    lcd_send_command(LCD_CMD_CLEAR);
+    esp_err_t ret = lcd_send_command(LCD_CMD_CLEAR);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to clear display: %s", esp_err_to_name(ret));
+        return;
+    }
     vTaskDelay(pdMS_TO_TICKS(2));
 }
 
@@ -147,7 +218,11 @@ void lcd_display_write(const char *text, uint8_t row)
     
     // Set cursor position (row 0 = 0x00, row 1 = 0x40)
     uint8_t row_addr = (row == 0) ? 0x00 : 0x40;
-    lcd_send_command(LCD_CMD_SET_DDRAM_ADDR | row_addr);
+    esp_err_t ret = lcd_send_command(LCD_CMD_SET_DDRAM_ADDR | row_addr);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set cursor position for row %d: %s", row, esp_err_to_name(ret));
+        return;
+    }
     
     // Longer delay after cursor positioning to ensure it's processed
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -157,12 +232,18 @@ void lcd_display_write(const char *text, uint8_t row)
         if (text[i] == '\0') {
             // Pad remaining space with spaces
             for (int j = i; j < 16; j++) {
-                lcd_send_data_byte(' ');
+                ret = lcd_send_data_byte(' ');
+                if (ret != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to write padding at position %d: %s", j, esp_err_to_name(ret));
+                }
                 vTaskDelay(pdMS_TO_TICKS(1));  // Small delay between characters
             }
             break;
         }
-        lcd_send_data_byte(text[i]);
+        ret = lcd_send_data_byte(text[i]);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to write character '%c' at position %d: %s", text[i], i, esp_err_to_name(ret));
+        }
         vTaskDelay(pdMS_TO_TICKS(1));  // Small delay between characters
     }
 }
@@ -171,9 +252,18 @@ void lcd_display_set_backlight_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
     ESP_LOGI(TAG, "Setting RGB backlight: R=%d G=%d B=%d", r, g, b);
     
-    rgb_write_register(RGB_PWM_RED, r);
-    rgb_write_register(RGB_PWM_GREEN, g);
-    rgb_write_register(RGB_PWM_BLUE, b);
+    esp_err_t ret = rgb_write_register(RGB_PWM_RED, r);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set red PWM: %s", esp_err_to_name(ret));
+    }
+    ret = rgb_write_register(RGB_PWM_GREEN, g);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set green PWM: %s", esp_err_to_name(ret));
+    }
+    ret = rgb_write_register(RGB_PWM_BLUE, b);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set blue PWM: %s", esp_err_to_name(ret));
+    }
 }
 
 void lcd_display_show_state(safe_state_t state)

@@ -2,8 +2,14 @@
 #include <math.h>
 #include "driver/i2c.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "../lcd_display/lcd_display.h"
 
 static const char *TAG = "MPU6050";
+
+// I2C mutex (shared with LCD)
+static SemaphoreHandle_t i2c_mutex = NULL;
 
 // MPU6050 I2C address
 #define MPU6050_ADDR        0x68
@@ -22,6 +28,11 @@ static int movement_hit_count = 0;
 
 static esp_err_t mpu6050_write_reg(uint8_t reg_addr, uint8_t data)
 {
+    if (i2c_mutex == NULL || xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire I2C mutex for write");
+        return ESP_ERR_TIMEOUT;
+    }
+    
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
@@ -30,12 +41,19 @@ static esp_err_t mpu6050_write_reg(uint8_t reg_addr, uint8_t data)
     i2c_master_stop(cmd);
     esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
+    
+    xSemaphoreGive(i2c_mutex);
     return ret;
 }
 
 static esp_err_t mpu6050_read_reg(uint8_t reg_addr, uint8_t *data, size_t len)
 {
     if (len == 0) return ESP_OK;
+    
+    if (i2c_mutex == NULL || xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire I2C mutex for read");
+        return ESP_ERR_TIMEOUT;
+    }
 
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
@@ -50,6 +68,8 @@ static esp_err_t mpu6050_read_reg(uint8_t reg_addr, uint8_t *data, size_t len)
     i2c_master_stop(cmd);
     esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(cmd);
+    
+    xSemaphoreGive(i2c_mutex);
     return ret;
 }
 
@@ -60,6 +80,13 @@ bool mpu6050_init(void)
     }
 
     ESP_LOGI(TAG, "Initializing MPU6050...");
+
+    // Get shared I2C mutex from LCD driver
+    i2c_mutex = lcd_display_get_i2c_mutex();
+    if (i2c_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to get I2C mutex - ensure lcd_display_init() is called first");
+        return false;
+    }
 
     // I2C bus is already initialized in main.c
     ESP_LOGI(TAG, "I2C initialized (SDA=%d, SCL=%d)", MPU6050_SDA_PIN, MPU6050_SCL_PIN);
