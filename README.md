@@ -105,7 +105,7 @@ An ESP32-based smart safe system with PIN authentication, tamper detection, and 
 | Task         | Priority | Stack | Description                      |
 |--------------|----------|-------|----------------------------------|
 | keypad_task  | 6        | 2048  | Keypad scanning                  |
-| sensor_task  | 5        | 2048  | MPU6050 polling                  |
+| sensor_task  | 5        | 4096  | MPU6050 interrupt-driven         |
 | control_task | 4        | 8192  | State machine, PIN verification  |
 | led_task     | 3        | 2048  | LED control                      |
 | lcd_task     | 2        | 3072  | LCD display updates              |
