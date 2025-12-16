@@ -22,7 +22,6 @@ static const char *TAG = "MAIN";
 #define I2C_MASTER_NUM              I2C_NUM_0
 
 // Task priorities (higher number = higher priority)
-// See docs/task-architecture.md for detailed rationale
 #define KEYPAD_TASK_PRIORITY    6   // Highest - user expects instant response
 #define SENSOR_TASK_PRIORITY    5   // Security critical tamper detection
 #define CONTROL_TASK_PRIORITY   4   // Central logic coordinator
@@ -31,7 +30,6 @@ static const char *TAG = "MAIN";
 #define COMM_TASK_PRIORITY      1   // Lowest - network can be slow
 
 // Task stack sizes
-// NOTE: Stack sizes account for NVS operations, logging, and library usage
 #define KEYPAD_TASK_STACK   2048
 #define SENSOR_TASK_STACK   4096
 #define CONTROL_TASK_STACK  8192    // Needs extra for NVS operations in pin_manager
@@ -69,7 +67,7 @@ static esp_err_t i2c_master_init(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "Smart Safe starting...");
-
+    
     // Initialize NVS (needed for WiFi and storing PIN)
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
