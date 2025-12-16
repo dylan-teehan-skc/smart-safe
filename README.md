@@ -99,14 +99,14 @@ An ESP32-based smart safe system with PIN authentication, tamper detection, and 
 ```
 
 ### FreeRTOS Tasks
-| Task | Priority | Stack | Description |
-|------|----------|-------|-------------|
-| control_task | 4 | 4096 | State machine, PIN verification |
-| comm_task | 3 | 8192 | WiFi, MQTT, telemetry |
-| lcd_task | 2 | 4096 | LCD display updates |
-| led_task | 2 | 2048 | LED control |
-| keypad_task | 3 | 2048 | Keypad scanning |
-| sensor_task | 3 | 4096 | MPU6050 polling |
+| Task         | Priority | Stack | Description                      |
+|--------------|----------|-------|----------------------------------|
+| keypad_task  | 6        | 2048  | Keypad scanning                  |
+| sensor_task  | 5        | 2048  | MPU6050 polling                  |
+| control_task | 4        | 8192  | State machine, PIN verification  |
+| led_task     | 3        | 2048  | LED control                      |
+| lcd_task     | 2        | 3072  | LCD display updates              |
+| comm_task    | 1        | 8192  | WiFi, MQTT, telemetry            |
 
 ### Dashboard Features
 - Lock/Unlock buttons
