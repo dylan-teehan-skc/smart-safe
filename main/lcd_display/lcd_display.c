@@ -273,8 +273,14 @@ void lcd_display_show_state(safe_state_t state)
         esp_timer_handle_t timer_to_delete = message_timer;
         message_timer = NULL;
         message_active = false;
-        esp_timer_stop(timer_to_delete);
-        esp_timer_delete(timer_to_delete);
+        esp_err_t stop_ret = esp_timer_stop(timer_to_delete);
+        if (stop_ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to stop message timer: %s", esp_err_to_name(stop_ret));
+        }
+        esp_err_t del_ret = esp_timer_delete(timer_to_delete);
+        if (del_ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to delete message timer: %s", esp_err_to_name(del_ret));
+        }
     }
 
     lcd_display_clear();
