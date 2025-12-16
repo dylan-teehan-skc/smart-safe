@@ -468,6 +468,9 @@ void lcd_task(void *pvParameters)
                 case LCD_CMD_SHOW_CHECKING:
                     lcd_display_show_checking();
                     break;
+                default:
+                    ESP_LOGW(TAG, "Unknown LCD command type: %d", cmd.type);
+                    break;
             }
         }
     }

@@ -19,12 +19,24 @@ QueueHandle_t lcd_queue = NULL;
 QueueHandle_t event_queue = NULL;
 QueueHandle_t cmd_queue = NULL;
 
+// Helper to clean up queues on initialization failure
+static void cleanup_queues(void)
+{
+    if (key_queue != NULL) { vQueueDelete(key_queue); key_queue = NULL; }
+    if (sensor_queue != NULL) { vQueueDelete(sensor_queue); sensor_queue = NULL; }
+    if (led_queue != NULL) { vQueueDelete(led_queue); led_queue = NULL; }
+    if (lcd_queue != NULL) { vQueueDelete(lcd_queue); lcd_queue = NULL; }
+    if (event_queue != NULL) { vQueueDelete(event_queue); event_queue = NULL; }
+    if (cmd_queue != NULL) { vQueueDelete(cmd_queue); cmd_queue = NULL; }
+}
+
 bool queue_manager_init(void)
 {
     // Key queue (keypad_task -> control_task)
     key_queue = xQueueCreate(KEY_QUEUE_SIZE, sizeof(key_event_t));
     if (key_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create key queue");
+        cleanup_queues();
         return false;
     }
     ESP_LOGI(TAG, "Key queue created (size: %d)", KEY_QUEUE_SIZE);
@@ -33,6 +45,7 @@ bool queue_manager_init(void)
     sensor_queue = xQueueCreate(SENSOR_QUEUE_SIZE, sizeof(sensor_event_t));
     if (sensor_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create sensor queue");
+        cleanup_queues();
         return false;
     }
     ESP_LOGI(TAG, "Sensor queue created (size: %d)", SENSOR_QUEUE_SIZE);
@@ -41,6 +54,7 @@ bool queue_manager_init(void)
     led_queue = xQueueCreate(LED_QUEUE_SIZE, sizeof(led_cmd_t));
     if (led_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create LED queue");
+        cleanup_queues();
         return false;
     }
     ESP_LOGI(TAG, "LED queue created (size: %d)", LED_QUEUE_SIZE);
@@ -49,6 +63,7 @@ bool queue_manager_init(void)
     lcd_queue = xQueueCreate(LCD_QUEUE_SIZE, sizeof(lcd_cmd_t));
     if (lcd_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create LCD queue");
+        cleanup_queues();
         return false;
     }
     ESP_LOGI(TAG, "LCD queue created (size: %d)", LCD_QUEUE_SIZE);
@@ -57,6 +72,7 @@ bool queue_manager_init(void)
     event_queue = xQueueCreate(EVENT_QUEUE_SIZE, sizeof(event_t));
     if (event_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create event queue");
+        cleanup_queues();
         return false;
     }
     ESP_LOGI(TAG, "Event queue created (size: %d)", EVENT_QUEUE_SIZE);
@@ -65,6 +81,7 @@ bool queue_manager_init(void)
     cmd_queue = xQueueCreate(CMD_QUEUE_SIZE, sizeof(command_t));
     if (cmd_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create command queue");
+        cleanup_queues();
         return false;
     }
     ESP_LOGI(TAG, "Command queue created (size: %d)", CMD_QUEUE_SIZE);

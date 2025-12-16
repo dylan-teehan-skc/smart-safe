@@ -12,6 +12,9 @@ typedef enum {
 } led_mode_t;
 
 // GPIO pin definitions for LEDs
+// IMPORTANT: Use 220-330 ohm series resistors to limit current!
+// Without resistors, LEDs may be damaged and GPIO pins may be overloaded.
+// ESP32 GPIO pins can source/sink max 40mA, but 10-20mA is recommended.
 #define RED_LED_PIN   GPIO_NUM_4
 #define GREEN_LED_PIN GPIO_NUM_18
 

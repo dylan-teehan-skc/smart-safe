@@ -2,6 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "nvs_flash.h"
 #include "driver/i2c.h"
 #include "queue_manager/queue_manager.h"
@@ -32,7 +33,7 @@ static const char *TAG = "MAIN";
 // Task stack sizes
 // NOTE: Stack sizes account for NVS operations, logging, and library usage
 #define KEYPAD_TASK_STACK   2048
-#define SENSOR_TASK_STACK   2048
+#define SENSOR_TASK_STACK   4096
 #define CONTROL_TASK_STACK  8192    // Needs extra for NVS operations in pin_manager
 #define LED_TASK_STACK      2048
 #define LCD_TASK_STACK      3072    // I2C operations need extra stack
@@ -91,6 +92,15 @@ void app_main(void)
 
     // Initialize keypad GPIO and ISR (must be done before keypad_task starts)
     keypad_init();
+
+    // Initialize task watchdog (10 second timeout)
+    esp_task_wdt_config_t wdt_config = {
+        .timeout_ms = 10000,
+        .idle_core_mask = 0,
+        .trigger_panic = true,
+    };
+    esp_task_wdt_init(&wdt_config);
+    ESP_LOGI(TAG, "Task watchdog initialized (10s timeout)");
 
     ESP_LOGI(TAG, "Creating 6 FreeRTOS tasks...");
 

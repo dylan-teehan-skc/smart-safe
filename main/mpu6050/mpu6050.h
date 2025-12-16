@@ -16,6 +16,9 @@
 #define MPU6050_SDA_PIN     21
 #define MPU6050_SCL_PIN     22
 
+// Interrupt pin for motion detection (MPU6050 INT -> ESP32 GPIO)
+#define MPU6050_INT_PIN     16
+
 // Initialize MPU6050 accelerometer
 bool mpu6050_init(void);
 
@@ -29,8 +32,10 @@ bool mpu6050_movement_detected(void);
 void mpu6050_set_threshold(int32_t threshold);
 int32_t mpu6050_get_threshold(void);
 
-// FreeRTOS task that polls sensor and sends movement to sensor_queue
+// FreeRTOS task for motion detection using hardware interrupts
 // Priority 5 - security critical tamper detection
+// Uses MPU6050 INT pin (GPIO 19) for interrupt-driven detection
+// Task blocks on semaphore until motion interrupt fires
 void sensor_task(void *pvParameters);
 
 #endif

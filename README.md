@@ -15,11 +15,11 @@ An ESP32-based smart safe system with PIN authentication, tamper detection, and 
 
 | Component | GPIO Pins | Description |
 |-----------|-----------|-------------|
-| 4x4 Matrix Keypad | Rows: 13,12,14,27 / Cols: 26,25,33,32 | PIN entry |
-| MPU6050 Accelerometer | SDA: 21, SCL: 22 | Tamper detection |
+| 4x4 Matrix Keypad | Rows: 13,12,14,27 / Cols: 26,25,33,32 | PIN entry (interrupt-driven) |
+| MPU6050 Accelerometer | SDA: 21, SCL: 22, INT: 16 | Tamper detection (interrupt-driven) |
 | RGB LCD (DFRobot DFR0464) | SDA: 21, SCL: 22 (shared I2C) | Status display |
-| Red LED | GPIO 4 | Locked/Alarm indicator |
-| Green LED | GPIO 18 | Unlocked indicator |
+| Red LED | GPIO 4 (use 220-330Ω resistor) | Locked/Alarm indicator |
+| Green LED | GPIO 18 (use 220-330Ω resistor) | Unlocked indicator |
 
 ## Software Requirements
 
@@ -78,7 +78,10 @@ An ESP32-based smart safe system with PIN authentication, tamper detection, and 
 {"command":"unlock"}
 {"command":"set_code","code":"1234"}
 {"command":"reset_alarm"}
+{"command":"set_sensitivity","value":25000}
 ```
+
+> **Note:** Sensitivity range is 17000-45000 (lower = more sensitive). Values below 17000 would trigger constantly due to gravity (~16384 LSB at rest).
 
 ## Architecture
 
