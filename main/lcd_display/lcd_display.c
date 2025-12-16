@@ -2,6 +2,7 @@
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -449,7 +450,14 @@ void lcd_task(void *pvParameters)
     // Show initial locked state
     lcd_display_show_state(STATE_LOCKED);
 
+    // Register with watchdog
+    esp_task_wdt_add(NULL);
+    ESP_LOGI(TAG, "LCD task registered with watchdog");
+
     while (1) {
+        // Feed the watchdog
+        esp_task_wdt_reset();
+
         lcd_cmd_t cmd;
         if (receive_lcd_cmd(&cmd, 100)) {
             switch (cmd.type) {

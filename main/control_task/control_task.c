@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "../queue_manager/queue_manager.h"
 #include "../state_machine/state_machine.h"
 #include "../json_protocol/json_protocol.h"
@@ -188,9 +189,16 @@ void control_task(void *pvParameters)
     // Publish initial state
     event_publisher_state_change(&safe_sm);
 
+    // Register with watchdog
+    esp_task_wdt_add(NULL);
+    ESP_LOGI(TAG, "Control task registered with watchdog");
+
     ESP_LOGI(TAG, "Ready for input");
 
     while (1) {
+        // Feed the watchdog
+        esp_task_wdt_reset();
+
         // Check for key events (non-blocking)
         key_event_t key_evt;
         if (receive_key_event(&key_evt, 0)) {

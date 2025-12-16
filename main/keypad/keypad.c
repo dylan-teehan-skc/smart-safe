@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "rom/ets_sys.h"
 #include "../queue_manager/queue_manager.h"
 
@@ -205,7 +206,14 @@ void keypad_task(void *pvParameters)
     (void)pvParameters;
     ESP_LOGI(TAG, "Keypad task started (Priority 6)");
 
+    // Register with watchdog
+    esp_task_wdt_add(NULL);
+    ESP_LOGI(TAG, "Keypad task registered with watchdog");
+
     while (1) {
+        // Feed the watchdog
+        esp_task_wdt_reset();
+
         char key = keypad_get_key();
         if (key != '\0') {
             key_event_t evt = { .key = key };
