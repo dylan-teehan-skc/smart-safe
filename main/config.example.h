@@ -24,4 +24,9 @@
 #define MQTT_TOPIC_TELEMETRY "smartsafe/" MQTT_DEVICE_ID "/telemetry"
 #define MQTT_TOPIC_COMMAND   "smartsafe/" MQTT_DEVICE_ID "/command"
 
+//Sensitivity of accelerometer
+#define INITIAL_SENSITIVITY 20000
+
+// Maximum wrong PIN attempts before alarm triggers
+#define MAX_WRONG_ATTEMPTS 3
 #endif
