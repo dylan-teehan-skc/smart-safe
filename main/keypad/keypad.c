@@ -4,7 +4,9 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "rom/ets_sys.h"
+#include "../queue_manager/queue_manager.h"
 
 static const char *TAG = "KEYPAD";
 
@@ -199,54 +201,25 @@ char keypad_get_key(void)
     return '\0';
 }
 
-char keypad_wait_for_key(uint32_t timeout_ms)
+void keypad_task(void *pvParameters)
 {
-    uint8_t dummy;
-    TickType_t timeout_ticks = (timeout_ms == 0) ? portMAX_DELAY : (timeout_ms / portTICK_PERIOD_MS);
-    
-    // Wait for interrupt signal (blocking)
-    if (xQueueReceive(keypad_queue, &dummy, timeout_ticks) == pdTRUE) {
-        char key = keypad_scan();
-        
-        // Additional debounce
-        vTaskDelay(20 / portTICK_PERIOD_MS);
-        char key2 = keypad_scan();
-        
-        if (key == key2 && key != '\0') {
-            return key;
-        }
-    }
-    
-    return '\0';  // Timeout or no valid key
-}
+    (void)pvParameters;
+    ESP_LOGI(TAG, "Keypad task started (Priority 6)");
 
-// void keypad_demo(void)
-// {
-//     ESP_LOGI(TAG, "Starting interrupt-based keypad demo...");
-//     ESP_LOGI(TAG, "Press keys on the keypad. CPU sleeps between presses.");
-    
-//     while (1) {
-//         // Blocking wait - CPU can sleep until key press
-//         char key = keypad_wait_for_key(0);  // 0 = wait forever
-        
-//         if (key != '\0') {
-//             ESP_LOGI(TAG, "Key pressed: '%c'", key);
-            
-//             // Wait for key release (all columns HIGH)
-//             while (1) {
-//                 bool all_released = true;
-//                 for (int i = 0; i < 4; i++) {
-//                     if (gpio_get_level(col_pins[i]) == 0) {
-//                         all_released = false;
-//                         break;
-//                     }
-//                 }
-//                 if (all_released) {
-//                     ESP_LOGI(TAG, "Key released");
-//                     break;
-//                 }
-//                 vTaskDelay(10 / portTICK_PERIOD_MS);
-//             }
-//         }
-//     }
-// }
+    // Register with watchdog
+    esp_task_wdt_add(NULL);
+    ESP_LOGI(TAG, "Keypad task registered with watchdog");
+
+    while (1) {
+        // Feed the watchdog
+        esp_task_wdt_reset();
+
+        char key = keypad_get_key();
+        if (key != '\0') {
+            key_event_t evt = { .key = key };
+            send_key_event(&evt);
+            ESP_LOGI(TAG, "Key '%c' sent to queue", key);
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}

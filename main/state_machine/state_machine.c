@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include "esp_timer.h"
 #include "state_machine.h"
-
-#define MAX_WRONG_ATTEMPTS 3
+#include "../config.h"
 
 safe_state_machine_t state_machine_init(void)
 {
