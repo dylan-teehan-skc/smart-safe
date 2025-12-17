@@ -4,7 +4,7 @@ An ESP32-based smart safe system with PIN authentication, tamper detection, and 
 
 ## Short Video Demo
 
-https://vimeo.com/manage/videos/1147485966
+https://vimeo.com/1147485966?share=copy
 
 ## Features
 
