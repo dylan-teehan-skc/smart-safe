@@ -2,6 +2,10 @@
 
 An ESP32-based smart safe system with PIN authentication, tamper detection, and remote monitoring via MQTT.
 
+## Short Video Demo
+
+https://vimeo.com/manage/videos/1147485966
+
 ## Features
 
 - **4-Digit PIN Authentication** - Keypad input with LCD feedback
